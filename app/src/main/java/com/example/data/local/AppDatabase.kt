@@ -18,9 +18,10 @@ import kotlinx.coroutines.launch
         TimeOffRequest::class,
         DailyTask::class,
         PerformanceReview::class,
-        NotificationLog::class
+        NotificationLog::class,
+        TimeClockEntry::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -32,6 +33,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun taskDao(): TaskDao
     abstract fun performanceDao(): PerformanceDao
     abstract fun notificationDao(): NotificationDao
+    abstract fun timeClockDao(): TimeClockDao
 
     companion object {
         @Volatile
@@ -184,10 +186,11 @@ abstract class AppDatabase : RoomDatabase() {
                     project = "Soporte 24/7",
                     functionalArea = "Atención al Cliente",
                     systemRole = SystemRole.EMPLOYEE,
+                    workSchedulePattern = WorkSchedulePattern.JUEVES_A_DOMINGO,
                     status = EmployeeStatus.BAJA_MEDICA,
                     avatarColorHex = 0xFFEF4444,
                     hireDate = "2023-08-01",
-                    notes = "Baja médica temporal"
+                    notes = "Turno intensivo de Jueves a Domingo • Baja médica temporal"
                 ),
                 Employee(
                     name = "Pepe García",
@@ -199,10 +202,11 @@ abstract class AppDatabase : RoomDatabase() {
                     project = "Soporte 24/7",
                     functionalArea = "Logística",
                     systemRole = SystemRole.EMPLOYEE,
+                    workSchedulePattern = WorkSchedulePattern.SABADO_DOMINGO_LUNES,
                     status = EmployeeStatus.ACTIVO,
                     avatarColorHex = 0xFF0284C7,
                     hireDate = "2024-01-10",
-                    notes = "Empleado asignado por el administrador con acceso a funciones de empleado"
+                    notes = "Jornada atípica fija de Sábados, Domingos y Lunes (Descanso Mar a Vie)"
                 )
             )
 
@@ -374,6 +378,38 @@ abstract class AppDatabase : RoomDatabase() {
                     message = "Se han publicado los turnos para la semana actual.",
                     channel = "SISTEMA",
                     isRead = true
+                )
+            )
+
+            // Seed initial TimeClockEntries (including one offline in basement pending WorkManager sync)
+            val timeClockDao = database.timeClockDao()
+            timeClockDao.insertClockEntry(
+                TimeClockEntry(
+                    employeeId = insertedIds[0],
+                    employeeName = "Laura Martínez Gómez",
+                    department = "Tecnología",
+                    clockType = ClockType.ENTRADA,
+                    timestamp = System.currentTimeMillis() - 7200000L,
+                    formattedTime = "08:02:15",
+                    formattedDate = todayStr,
+                    locationTag = "Sede Central - Acceso Principal",
+                    syncStatus = SyncStatus.SYNCED,
+                    serverSyncId = "SRV-CLOUD-99412"
+                )
+            )
+            timeClockDao.insertClockEntry(
+                TimeClockEntry(
+                    employeeId = insertedIds[5], // Javier Fernández
+                    employeeName = "Javier Fernández Soto",
+                    department = "Operaciones",
+                    clockType = ClockType.ENTRADA,
+                    timestamp = System.currentTimeMillis() - 1800000L,
+                    formattedTime = "07:31:40",
+                    formattedDate = todayStr,
+                    locationTag = "Sótano -2 / Almacén Central (Zona sin red)",
+                    syncStatus = SyncStatus.PENDING,
+                    syncAttempts = 1,
+                    lastSyncAttemptAt = System.currentTimeMillis() - 600000L
                 )
             )
         }

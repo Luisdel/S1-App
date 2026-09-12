@@ -247,7 +247,7 @@ fun TimeOffCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Dates & count
+            // Dates & count with Atypical Schedule breakdown
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -267,12 +267,58 @@ fun TimeOffCard(
                         fontWeight = FontWeight.SemiBold
                     )
                 }
-                Text(
-                    text = "${request.daysCount} días hábiles",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = "${request.daysCount} días hábiles computados",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    if (request.legalRestDaysCount > 0) {
+                        Text(
+                            text = "+ ${request.legalRestDaysCount} descansos legales exentos",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Medium,
+                            color = TealAccent
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Horario Atípico Badge
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Schedule,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Patrón laboral: ${request.schedulePattern.label}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                    if (request.legalRestDaysCount > 0) {
+                        Spacer(modifier = Modifier.weight(1f))
+                        Text(
+                            text = "🛡️ Descanso respetado",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = EmeraldSuccess
+                        )
+                    }
+                }
             }
 
             // Motivo detallado ingresado a mano

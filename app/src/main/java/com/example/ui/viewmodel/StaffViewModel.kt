@@ -9,6 +9,7 @@ import com.example.data.model.*
 import com.example.data.repository.IntegrationService
 import com.example.data.repository.ReportExporter
 import com.example.data.repository.StaffRepository
+import com.example.data.sync.BackgroundSyncWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -60,6 +61,19 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
 
     val notifications: StateFlow<List<NotificationLog>> = repository.notifications
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val clockEntries: StateFlow<List<TimeClockEntry>> = repository.clockEntries
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val pendingClockCount: StateFlow<Int> = repository.pendingClockCount
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    private val _isNetworkAvailable = MutableStateFlow(integrationService.isNetworkAvailable())
+    val isNetworkAvailable: StateFlow<Boolean> = _isNetworkAvailable.asStateFlow()
+
+    fun refreshNetworkStatus() {
+        _isNetworkAvailable.value = integrationService.isNetworkAvailable()
+    }
 
     // Current logged-in user & active role for RBAC
     private val _loggedInEmployee = MutableStateFlow<Employee?>(null)
@@ -767,6 +781,88 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
             _statusMessage.value = "Cliente de correo abierto con la plantilla lista"
         } else {
             _statusMessage.value = "No se pudo abrir el cliente de correo"
+        }
+    }
+
+    init {
+        // Iniciar sincronización periódica silenciosa con WorkManager cada 15 minutos
+        BackgroundSyncWorker.enqueuePeriodicSync(application)
+    }
+
+    // Registro de Jornada y Fichaje Offline (Sótano / Sin Cobertura) con WorkManager
+    fun registerClockEntry(
+        employee: Employee,
+        clockType: ClockType,
+        locationTag: String = "Sótano / Instalación sin cobertura"
+    ) {
+        val now = java.time.LocalDateTime.now()
+        val timeFormatter = java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")
+        val dateFormatter = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd")
+
+        val isOnline = integrationService.isNetworkAvailable()
+        _isNetworkAvailable.value = isOnline
+
+        val entry = TimeClockEntry(
+            employeeId = employee.id,
+            employeeName = employee.name,
+            department = employee.department,
+            clockType = clockType,
+            timestamp = System.currentTimeMillis(),
+            formattedTime = now.format(timeFormatter),
+            formattedDate = now.format(dateFormatter),
+            locationTag = locationTag,
+            syncStatus = if (isOnline) SyncStatus.SYNCING else SyncStatus.PENDING
+        )
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val insertedId = repository.insertClockEntry(entry)
+            val insertedEntry = entry.copy(id = insertedId)
+
+            if (isOnline) {
+                val syncResult = integrationService.syncClockEntryToCloud(insertedEntry)
+                if (syncResult.isSuccess) {
+                    val serverId = syncResult.getOrNull() ?: "SRV-${System.currentTimeMillis()}"
+                    repository.updateClockEntry(
+                        insertedEntry.copy(
+                            syncStatus = SyncStatus.SYNCED,
+                            serverSyncId = serverId,
+                            lastSyncAttemptAt = System.currentTimeMillis()
+                        )
+                    )
+                    _statusMessage.value = "✅ ${clockType.label} registrada y sincronizada con el Servidor Cloud ($serverId)."
+                } else {
+                    repository.updateClockEntry(
+                        insertedEntry.copy(
+                            syncStatus = SyncStatus.PENDING,
+                            syncAttempts = 1,
+                            lastSyncAttemptAt = System.currentTimeMillis()
+                        )
+                    )
+                    BackgroundSyncWorker.enqueueImmediateSync(getApplication())
+                    _statusMessage.value = "⚠️ Fichaje guardado localmente en Room. En cola para sincronización WorkManager."
+                }
+            } else {
+                // Sin cobertura (sótano) -> Guardar silenciosamente en Room y encolar WorkManager
+                BackgroundSyncWorker.enqueueImmediateSync(getApplication())
+                _statusMessage.value = "🏢 Fichaje guardado en local (Modo Sótano). WorkManager lo sincronizará silenciosamente al recuperar cobertura."
+            }
+
+            repository.addNotification(
+                NotificationLog(
+                    title = "Registro de Jornada: ${clockType.label}",
+                    message = "${employee.name} ha fichado (${clockType.label}) a las ${entry.formattedTime}. Ubicación: $locationTag.",
+                    channel = "SISTEMA"
+                )
+            )
+        }
+    }
+
+    fun triggerWorkManagerSync() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _isNetworkAvailable.value = integrationService.isNetworkAvailable()
+            BackgroundSyncWorker.enqueueImmediateSync(getApplication())
+            val report = integrationService.forceFullSync(database)
+            _statusMessage.value = report.message
         }
     }
 }

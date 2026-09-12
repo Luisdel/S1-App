@@ -57,6 +57,99 @@ enum class TaskAssignmentScope(val label: String) {
     SECCION("Sección de Personal")
 }
 
+enum class WorkSchedulePattern(
+    val label: String,
+    val shortLabel: String,
+    val description: String,
+    val workingDayNumbers: List<Int> // 1 for Monday .. 7 for Sunday (java.time.DayOfWeek.value)
+) {
+    LUNES_A_VIERNES(
+        label = "Lunes a Viernes (Estándar)",
+        shortLabel = "L - V",
+        description = "Trabajo ordinario de Lunes a Viernes. Descanso legal: Sábado y Domingo.",
+        workingDayNumbers = listOf(1, 2, 3, 4, 5)
+    ),
+    SABADO_DOMINGO_LUNES(
+        label = "Sábado, Domingo y Lunes (Atípico Fijo)",
+        shortLabel = "Sáb - Dom - Lun",
+        description = "Turno fijo de fines de semana y lunes. Descanso legal: Martes, Miércoles, Jueves y Viernes.",
+        workingDayNumbers = listOf(6, 7, 1)
+    ),
+    JUEVES_A_DOMINGO(
+        label = "Jueves a Domingo (Jornada 4x3)",
+        shortLabel = "Jue - Dom",
+        description = "Trabajo intensivo de Jueves a Domingo. Descanso legal: Lunes, Martes y Miércoles.",
+        workingDayNumbers = listOf(4, 5, 6, 7)
+    ),
+    ROTATIVO_TOTAL(
+        label = "Turnos Continuos / 24-7",
+        shortLabel = "Continuo 24/7",
+        description = "Jornada rotativa continua sujeta a cuadrante de guardia semanal.",
+        workingDayNumbers = listOf(1, 2, 3, 4, 5, 6, 7)
+    );
+
+    fun isWorkingDay(date: java.time.LocalDate): Boolean {
+        return workingDayNumbers.contains(date.dayOfWeek.value)
+    }
+
+    fun isLegalRestDay(date: java.time.LocalDate): Boolean {
+        return !isWorkingDay(date)
+    }
+
+    fun calculateBreakdown(startDate: java.time.LocalDate, endDate: java.time.LocalDate): ScheduleBreakdown {
+        if (endDate.isBefore(startDate)) {
+            return ScheduleBreakdown(0, 0, emptyList())
+        }
+        var current = startDate
+        var workingCount = 0
+        var restCount = 0
+        val details = mutableListOf<DayScheduleDetail>()
+        while (!current.isAfter(endDate)) {
+            val isWork = isWorkingDay(current)
+            if (isWork) {
+                workingCount++
+            } else {
+                restCount++
+            }
+            details.add(
+                DayScheduleDetail(
+                    date = current,
+                    dayOfWeek = current.dayOfWeek,
+                    isWorkingDay = isWork
+                )
+            )
+            current = current.plusDays(1)
+        }
+        return ScheduleBreakdown(workingCount, restCount, details)
+    }
+}
+
+data class DayScheduleDetail(
+    val date: java.time.LocalDate,
+    val dayOfWeek: java.time.DayOfWeek,
+    val isWorkingDay: Boolean
+)
+
+data class ScheduleBreakdown(
+    val workingDaysCount: Int,
+    val legalRestDaysCount: Int,
+    val dayDetails: List<DayScheduleDetail>
+)
+
+enum class ClockType(val label: String) {
+    ENTRADA("Entrada de Turno"),
+    SALIDA("Salida de Turno"),
+    PAUSA_INICIO("Inicio de Descanso"),
+    PAUSA_FIN("Fin de Descanso")
+}
+
+enum class SyncStatus(val label: String, val colorHex: Long) {
+    PENDING("Pendiente de sincronizar (Offline)", 0xFFF59E0B),
+    SYNCING("Sincronizando...", 0xFF3B82F6),
+    SYNCED("Sincronizado con Servidor Cloud", 0xFF10B981),
+    FAILED("Error de sincronización", 0xFFEF4444)
+}
+
 @Entity(tableName = "employees")
 data class Employee(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -71,6 +164,7 @@ data class Employee(
     val project: String = "General",
     val functionalArea: String = "Operaciones",
     val systemRole: SystemRole = SystemRole.EMPLOYEE,
+    val workSchedulePattern: WorkSchedulePattern = WorkSchedulePattern.LUNES_A_VIERNES,
     val status: EmployeeStatus = EmployeeStatus.ACTIVO,
     val avatarColorHex: Long = 0xFF2563EB,
     val hireDate: String = "2024-01-15",
@@ -97,15 +191,34 @@ data class TimeOffRequest(
     val employeeName: String,
     val department: String,
     val type: TimeOffType,
-    val customDayType: String = "", // Relleno a mano del tipo de día (ej: "Asuntos propios", "Día adicional generado por guardia")
+    val customDayType: String = "", // Relleno a mano del tipo de día
     val startDate: String, // "YYYY-MM-DD"
     val endDate: String,   // "YYYY-MM-DD"
-    val daysCount: Int,
+    val daysCount: Int,    // Días laborables computables a vacaciones
+    val legalRestDaysCount: Int = 0, // Días de descanso legal exentos del cómputo
+    val schedulePattern: WorkSchedulePattern = WorkSchedulePattern.LUNES_A_VIERNES,
     val reason: String, // Motivo detallado ingresado a mano
     val status: RequestStatus = RequestStatus.PENDIENTE,
     val requestedAt: Long = System.currentTimeMillis(),
     val reviewedBy: String? = null,
     val reviewedAt: Long? = null
+)
+
+@Entity(tableName = "time_clock_entries")
+data class TimeClockEntry(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val employeeId: Long,
+    val employeeName: String,
+    val department: String,
+    val clockType: ClockType,
+    val timestamp: Long = System.currentTimeMillis(),
+    val formattedTime: String, // "HH:mm:ss"
+    val formattedDate: String, // "YYYY-MM-DD"
+    val locationTag: String = "Sótano / Instalación sin cobertura",
+    val syncStatus: SyncStatus = SyncStatus.PENDING,
+    val syncAttempts: Int = 0,
+    val lastSyncAttemptAt: Long? = null,
+    val serverSyncId: String? = null
 )
 
 @Entity(tableName = "daily_tasks")

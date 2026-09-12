@@ -138,3 +138,33 @@ interface NotificationDao {
     @Query("DELETE FROM notification_logs")
     suspend fun clearAll()
 }
+
+@Dao
+interface TimeClockDao {
+    @Query("SELECT * FROM time_clock_entries ORDER BY timestamp DESC")
+    fun getAllClockEntries(): Flow<List<TimeClockEntry>>
+
+    @Query("SELECT * FROM time_clock_entries WHERE employeeId = :empId ORDER BY timestamp DESC")
+    fun getClockEntriesForEmployee(empId: Long): Flow<List<TimeClockEntry>>
+
+    @Query("SELECT * FROM time_clock_entries WHERE syncStatus = 'PENDING' OR syncStatus = 'FAILED' ORDER BY timestamp ASC")
+    suspend fun getPendingClockEntries(): List<TimeClockEntry>
+
+    @Query("SELECT COUNT(*) FROM time_clock_entries WHERE syncStatus = 'PENDING' OR syncStatus = 'FAILED'")
+    fun getPendingCountFlow(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM time_clock_entries WHERE syncStatus = 'PENDING' OR syncStatus = 'FAILED'")
+    suspend fun getPendingCount(): Int
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertClockEntry(entry: TimeClockEntry): Long
+
+    @Update
+    suspend fun updateClockEntry(entry: TimeClockEntry)
+
+    @Delete
+    suspend fun deleteClockEntry(entry: TimeClockEntry)
+
+    @Query("SELECT * FROM time_clock_entries WHERE id = :id")
+    suspend fun getClockEntryById(id: Long): TimeClockEntry?
+}

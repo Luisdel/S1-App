@@ -12,6 +12,8 @@ class StaffRepository(private val database: AppDatabase) {
     val tasks: Flow<List<DailyTask>> = database.taskDao().getAllTasks()
     val reviews: Flow<List<PerformanceReview>> = database.performanceDao().getAllReviews()
     val notifications: Flow<List<NotificationLog>> = database.notificationDao().getRecentNotifications()
+    val clockEntries: Flow<List<TimeClockEntry>> = database.timeClockDao().getAllClockEntries()
+    val pendingClockCount: Flow<Int> = database.timeClockDao().getPendingCountFlow()
 
     // Employees
     suspend fun insertEmployee(employee: Employee): Long = database.employeeDao().insertEmployee(employee)
@@ -74,4 +76,11 @@ class StaffRepository(private val database: AppDatabase) {
     suspend fun addNotification(log: NotificationLog): Long = database.notificationDao().insertNotification(log)
     suspend fun markAllNotificationsAsRead() = database.notificationDao().markAllAsRead()
     suspend fun clearNotifications() = database.notificationDao().clearAll()
+
+    // Time Clock (Fichaje offline / WorkManager)
+    suspend fun insertClockEntry(entry: TimeClockEntry): Long = database.timeClockDao().insertClockEntry(entry)
+    suspend fun updateClockEntry(entry: TimeClockEntry) = database.timeClockDao().updateClockEntry(entry)
+    suspend fun deleteClockEntry(entry: TimeClockEntry) = database.timeClockDao().deleteClockEntry(entry)
+    suspend fun getPendingClockEntries(): List<TimeClockEntry> = database.timeClockDao().getPendingClockEntries()
+    suspend fun getPendingClockCount(): Int = database.timeClockDao().getPendingCount()
 }

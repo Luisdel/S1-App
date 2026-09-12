@@ -51,4 +51,22 @@ class Converters {
 
     @TypeConverter
     fun toTaskAssignmentScope(value: String): TaskAssignmentScope = runCatching { TaskAssignmentScope.valueOf(value) }.getOrDefault(TaskAssignmentScope.PERSONAL)
+
+    @TypeConverter
+    fun fromWorkSchedulePattern(value: WorkSchedulePattern): String = value.name
+
+    @TypeConverter
+    fun toWorkSchedulePattern(value: String): WorkSchedulePattern = runCatching { WorkSchedulePattern.valueOf(value) }.getOrDefault(WorkSchedulePattern.LUNES_A_VIERNES)
+
+    @TypeConverter
+    fun fromClockType(value: ClockType): String = value.name
+
+    @TypeConverter
+    fun toClockType(value: String): ClockType = runCatching { ClockType.valueOf(value) }.getOrDefault(ClockType.ENTRADA)
+
+    @TypeConverter
+    fun fromSyncStatus(value: SyncStatus): String = value.name
+
+    @TypeConverter
+    fun toSyncStatus(value: String): SyncStatus = runCatching { SyncStatus.valueOf(value) }.getOrDefault(SyncStatus.PENDING)
 }
