@@ -1,0 +1,6 @@
+{
+  "name": "StaffHub",
+  "description": "Gestión integral de personal: turnos, vacaciones, tareas, desempeño, roles y reportes",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
