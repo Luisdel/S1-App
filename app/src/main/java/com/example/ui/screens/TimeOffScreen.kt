@@ -17,11 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.example.data.model.Employee
-import com.example.data.model.RequestStatus
-import com.example.data.model.SystemRole
-import com.example.data.model.TimeOffRequest
-import com.example.data.model.TimeOffType
+import com.example.data.model.*
 import com.example.ui.theme.*
 import java.time.LocalDate
 
@@ -398,12 +394,29 @@ fun RequestTimeOffDialog(
         )
     }
 
+    var selectedPattern by remember(selectedEmployee) {
+        mutableStateOf(selectedEmployee?.workSchedulePattern ?: WorkSchedulePattern.LUNES_A_VIERNES)
+    }
+
     var type by remember { mutableStateOf(TimeOffType.ASUNTOS_PROPIOS) }
     var customDayType by remember { mutableStateOf("Asuntos propios") }
     var startDate by remember { mutableStateOf(LocalDate.now().plusDays(1).toString()) }
     var endDate by remember { mutableStateOf(LocalDate.now().plusDays(1).toString()) }
-    var daysCount by remember { mutableStateOf("1") }
     var reason by remember { mutableStateOf("") }
+
+    val scheduleBreakdown = remember(startDate, endDate, selectedPattern) {
+        val sDate = runCatching { LocalDate.parse(startDate) }.getOrNull()
+        val eDate = runCatching { LocalDate.parse(endDate) }.getOrNull()
+        if (sDate != null && eDate != null && !eDate.isBefore(sDate)) {
+            selectedPattern.calculateBreakdown(sDate, eDate)
+        } else {
+            ScheduleBreakdown(0, 0, emptyList())
+        }
+    }
+
+    var daysCount by remember(scheduleBreakdown.workingDaysCount) {
+        mutableStateOf(scheduleBreakdown.workingDaysCount.coerceAtLeast(1).toString())
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -567,10 +580,91 @@ fun RequestTimeOffDialog(
                     )
                 }
 
+                // Selector de Patrón de Jornada Laboral (Horarios Atípicos Fijos)
+                Column {
+                    Text("Patrón laboral del empleado:", style = MaterialTheme.typography.labelMedium)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        WorkSchedulePattern.values().forEach { pat ->
+                            FilterChip(
+                                selected = selectedPattern == pat,
+                                onClick = { selectedPattern = pat },
+                                label = { Text(pat.shortLabel, style = MaterialTheme.typography.labelSmall) }
+                            )
+                        }
+                    }
+                    Text(
+                        text = selectedPattern.description,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                // Desglose Inteligente de Días Computables vs Descanso Legal
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.Calculate,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Cómputo Legal según Jornada",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column {
+                                Text(
+                                    text = "Días laborables (vacaciones):",
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                                Text(
+                                    text = "${scheduleBreakdown.workingDaysCount} días a descontar",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    text = "Descanso semanal exento:",
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                                Text(
+                                    text = "${scheduleBreakdown.legalRestDaysCount} días protegidos",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TealAccent
+                                )
+                            }
+                        }
+                    }
+                }
+
                 OutlinedTextField(
                     value = daysCount,
                     onValueChange = { daysCount = it },
-                    label = { Text("Número de Días") },
+                    label = { Text("Número de Días Computables a Vacaciones") },
+                    supportingText = { Text("Calculado automáticamente respetando tus días de descanso legal.") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp)
@@ -597,7 +691,7 @@ fun RequestTimeOffDialog(
                 onClick = {
                     val emp = selectedEmployee
                     if (emp != null && reason.isNotBlank() && customDayType.isNotBlank()) {
-                        val days = daysCount.toIntOrNull() ?: 1
+                        val days = daysCount.toIntOrNull() ?: scheduleBreakdown.workingDaysCount
                         onSave(
                             TimeOffRequest(
                                 employeeId = emp.id,
@@ -608,6 +702,8 @@ fun RequestTimeOffDialog(
                                 startDate = startDate,
                                 endDate = endDate,
                                 daysCount = days,
+                                legalRestDaysCount = scheduleBreakdown.legalRestDaysCount,
+                                schedulePattern = selectedPattern,
                                 reason = reason.trim()
                             )
                         )

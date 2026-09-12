@@ -84,6 +84,9 @@ fun MainApp(viewModel: StaffViewModel) {
     val tasks by viewModel.tasks.collectAsStateWithLifecycle()
     val reviews by viewModel.reviews.collectAsStateWithLifecycle()
     val notifications by viewModel.notifications.collectAsStateWithLifecycle()
+    val clockEntries by viewModel.clockEntries.collectAsStateWithLifecycle()
+    val pendingClockCount by viewModel.pendingClockCount.collectAsStateWithLifecycle()
+    val isNetworkAvailable by viewModel.isNetworkAvailable.collectAsStateWithLifecycle()
 
     val selectedDept by viewModel.selectedDepartment.collectAsStateWithLifecycle()
     val selectedProj by viewModel.selectedProject.collectAsStateWithLifecycle()
@@ -225,6 +228,12 @@ fun MainApp(viewModel: StaffViewModel) {
                                 shifts = shifts,
                                 pendingRequests = timeOffRequests.filter { it.status == RequestStatus.PENDIENTE },
                                 canApproveTimeOff = permissions.canApproveTimeOff,
+                                loggedInEmployee = loggedInEmployee,
+                                clockEntries = clockEntries,
+                                pendingClockCount = pendingClockCount,
+                                isNetworkOnline = isNetworkAvailable,
+                                onRegisterClock = { emp, clockType, loc -> viewModel.registerClockEntry(emp, clockType, loc) },
+                                onTriggerSync = { viewModel.triggerWorkManagerSync() },
                                 onApproveRequest = { id -> viewModel.reviewTimeOffRequest(id, RequestStatus.APROBADO) },
                                 onRejectRequest = { id -> viewModel.reviewTimeOffRequest(id, RequestStatus.RECHAZADO) },
                                 onNavigateToPersonnel = { currentDestination = NavigationDestination.PERSONNEL },

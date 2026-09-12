@@ -6,10 +6,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,6 +31,12 @@ fun DashboardScreen(
     shifts: List<Shift>,
     pendingRequests: List<TimeOffRequest>,
     canApproveTimeOff: Boolean,
+    loggedInEmployee: Employee? = null,
+    clockEntries: List<TimeClockEntry> = emptyList(),
+    pendingClockCount: Int = 0,
+    isNetworkOnline: Boolean = true,
+    onRegisterClock: (Employee, ClockType, String) -> Unit = { _, _, _ -> },
+    onTriggerSync: () -> Unit = {},
     onApproveRequest: (Long) -> Unit,
     onRejectRequest: (Long) -> Unit,
     onNavigateToPersonnel: () -> Unit,
@@ -193,6 +201,313 @@ fun DashboardScreen(
                     iconBgColor = TealAccentLight,
                     modifier = Modifier.weight(1f)
                 )
+            }
+        }
+
+        // Control Horario & Fichaje Digital Offline (WorkManager & Room)
+        item {
+            var selectedLocation by remember { mutableStateOf("Sótano -2 (Almacén Central)") }
+            val locationOptions = remember {
+                listOf(
+                    "Sótano -2 (Almacén Central)",
+                    "Sótano -1 (Archivo Técnico)",
+                    "Planta Baja (Recepción)",
+                    "Acceso Principal",
+                    "En Ruta / Exterior"
+                )
+            }
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("time_clock_card"),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    // Header with Online / Offline Status
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Fingerprint,
+                                contentDescription = null,
+                                tint = PrimaryBlue,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "Control Horario y Fichaje",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Registro de jornada con soporte para sótanos sin cobertura",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        // Network Connectivity Pill
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = if (isNetworkOnline) EmeraldSuccess.copy(alpha = 0.15f) else AmberWarning.copy(alpha = 0.15f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .clip(CircleShape)
+                                        .background(if (isNetworkOnline) EmeraldSuccess else AmberWarning)
+                                )
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    text = if (isNetworkOnline) "Cloud Online" else "Modo Sótano",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isNetworkOnline) EmeraldSuccess else AmberWarning
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // WorkManager Queue Info Banner
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = if (pendingClockCount > 0) Icons.Default.CloudQueue else Icons.Default.CloudDone,
+                                    contentDescription = null,
+                                    tint = if (pendingClockCount > 0) AmberWarning else EmeraldSuccess,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (pendingClockCount > 0) {
+                                        "$pendingClockCount fichajes en cola local Room (esperando WorkManager)"
+                                    } else {
+                                        "Todos los fichajes sincronizados con el servidor"
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            IconButton(
+                                onClick = onTriggerSync,
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Sync,
+                                    contentDescription = "Sincronizar WorkManager",
+                                    tint = PrimaryBlue,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Logged in user work schedule badge
+                    if (loggedInEmployee != null) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Fichando como: ${loggedInEmployee.name}",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer
+                            ) {
+                                Text(
+                                    text = loggedInEmployee.workSchedulePattern.shortLabel,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Location Chips
+                        Text(
+                            text = "Ubicación de marcaje:",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            locationOptions.forEach { loc ->
+                                FilterChip(
+                                    selected = selectedLocation == loc,
+                                    onClick = { selectedLocation = loc },
+                                    label = { Text(loc, style = MaterialTheme.typography.labelSmall) }
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Clock action buttons
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    onRegisterClock(loggedInEmployee, ClockType.ENTRADA, selectedLocation)
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("clock_in_button"),
+                                colors = ButtonDefaults.buttonColors(containerColor = EmeraldSuccess)
+                            ) {
+                                Icon(Icons.Default.Login, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Entrada")
+                            }
+
+                            FilledTonalButton(
+                                onClick = {
+                                    onRegisterClock(loggedInEmployee, ClockType.PAUSA_INICIO, selectedLocation)
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.PauseCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Pausa")
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    onRegisterClock(loggedInEmployee, ClockType.SALIDA, selectedLocation)
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("clock_out_button"),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = RoseError)
+                            ) {
+                                Icon(Icons.Default.Logout, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Salida")
+                            }
+                        }
+                    }
+
+                    // Recent clock logs
+                    if (clockEntries.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Divider()
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "Últimos registros de jornada:",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            clockEntries.take(3).forEach { entry ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = when (entry.clockType) {
+                                                ClockType.ENTRADA -> Icons.Default.Login
+                                                ClockType.SALIDA -> Icons.Default.Logout
+                                                else -> Icons.Default.PauseCircle
+                                            },
+                                            contentDescription = null,
+                                            tint = when (entry.clockType) {
+                                                ClockType.ENTRADA -> EmeraldSuccess
+                                                ClockType.SALIDA -> RoseError
+                                                else -> PrimaryBlue
+                                            },
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Column {
+                                            Text(
+                                                text = "${entry.employeeName} • ${entry.clockType.label}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            Text(
+                                                text = "${entry.formattedDate} ${entry.formattedTime} (${entry.locationTag})",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = when (entry.syncStatus) {
+                                            SyncStatus.SYNCED -> EmeraldSuccess.copy(alpha = 0.12f)
+                                            SyncStatus.SYNCING -> PrimaryBlue.copy(alpha = 0.12f)
+                                            SyncStatus.PENDING -> AmberWarning.copy(alpha = 0.12f)
+                                            SyncStatus.FAILED -> RoseError.copy(alpha = 0.12f)
+                                        }
+                                    ) {
+                                        Text(
+                                            text = when (entry.syncStatus) {
+                                                SyncStatus.SYNCED -> "☁️ Sincronizado"
+                                                SyncStatus.SYNCING -> "🔄 Sincronizando"
+                                                SyncStatus.PENDING -> "⏳ Cola Sótano"
+                                                SyncStatus.FAILED -> "⚠️ Error"
+                                            },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = when (entry.syncStatus) {
+                                                SyncStatus.SYNCED -> EmeraldSuccess
+                                                SyncStatus.SYNCING -> PrimaryBlue
+                                                SyncStatus.PENDING -> AmberWarning
+                                                SyncStatus.FAILED -> RoseError
+                                            },
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 

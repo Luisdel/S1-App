@@ -411,6 +411,11 @@ fun EmployeeCard(
                     label = { Text(employee.functionalArea, style = MaterialTheme.typography.labelSmall) },
                     leadingIcon = { Icon(Icons.Default.Category, contentDescription = null, modifier = Modifier.size(14.dp)) }
                 )
+                AssistChip(
+                    onClick = {},
+                    label = { Text(employee.workSchedulePattern.shortLabel, style = MaterialTheme.typography.labelSmall) },
+                    leadingIcon = { Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(14.dp), tint = PrimaryBlue) }
+                )
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -520,6 +525,7 @@ fun EmployeeFormDialog(
     var project by remember { mutableStateOf(initialEmployee?.project ?: "Proyecto Core") }
     var functionalArea by remember { mutableStateOf(initialEmployee?.functionalArea ?: "Ingeniería") }
     var systemRole by remember { mutableStateOf(initialEmployee?.systemRole ?: SystemRole.EMPLOYEE) }
+    var workSchedulePattern by remember { mutableStateOf(initialEmployee?.workSchedulePattern ?: WorkSchedulePattern.LUNES_A_VIERNES) }
     var status by remember { mutableStateOf(initialEmployee?.status ?: EmployeeStatus.ACTIVO) }
     var notes by remember { mutableStateOf(initialEmployee?.notes ?: "") }
     var accessPassword by remember { mutableStateOf(if (initialEmployee != null) (initialEmployee.passwordHash.ifBlank { "123456" }) else "123456") }
@@ -692,6 +698,28 @@ fun EmployeeFormDialog(
                     }
                 }
 
+                // Patrón Laboral Fijo / Atípico
+                Text("Patrón de Jornada Laboral (Horarios Atípicos Fijos):", style = MaterialTheme.typography.labelSmall)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    WorkSchedulePattern.values().forEach { pat ->
+                        FilterChip(
+                            selected = workSchedulePattern == pat,
+                            onClick = { workSchedulePattern = pat },
+                            label = { Text(pat.shortLabel, style = MaterialTheme.typography.labelSmall) }
+                        )
+                    }
+                }
+                Text(
+                    text = workSchedulePattern.description,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
                 // Password field for initial setup or modification
                 OutlinedTextField(
                     value = accessPassword,
@@ -745,6 +773,7 @@ fun EmployeeFormDialog(
                             project = project,
                             functionalArea = functionalArea,
                             systemRole = effectiveRole,
+                            workSchedulePattern = workSchedulePattern,
                             status = status,
                             notes = notes.trim()
                         ) ?: Employee(
@@ -758,6 +787,7 @@ fun EmployeeFormDialog(
                             project = project,
                             functionalArea = functionalArea,
                             systemRole = effectiveRole,
+                            workSchedulePattern = workSchedulePattern,
                             status = status,
                             avatarColorHex = 0xFF2563EB,
                             notes = notes.trim()
