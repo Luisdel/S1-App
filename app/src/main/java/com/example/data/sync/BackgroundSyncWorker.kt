@@ -30,32 +30,28 @@ class BackgroundSyncWorker(
             val pendingEntries = database.timeClockDao().getPendingClockEntries()
             Log.d("BackgroundSyncWorker", "Encontrados ${pendingEntries.size} fichajes offline pendientes de sincronizar.")
 
-            for (entry in pendingEntries) {
-                database.timeClockDao().updateClockEntry(entry.copy(syncStatus = SyncStatus.SYNCING))
-                val result = integrationService.syncClockEntryToCloud(entry)
-                if (result.isSuccess) {
-                    val serverId = result.getOrNull() ?: "SRV-CLOUD-${System.currentTimeMillis()}"
-                    database.timeClockDao().updateClockEntry(
-                        entry.copy(
-                            syncStatus = SyncStatus.SYNCED,
-                            serverSyncId = serverId,
-                            lastSyncAttemptAt = System.currentTimeMillis()
-                        )
-                    )
-                    Log.d("BackgroundSyncWorker", "Fichaje #${entry.id} sincronizado exitosamente con el servidor cloud ($serverId)")
-                } else {
-                    database.timeClockDao().updateClockEntry(
-                        entry.copy(
-                            syncStatus = SyncStatus.PENDING,
-                            syncAttempts = entry.syncAttempts + 1,
-                            lastSyncAttemptAt = System.currentTimeMillis()
-                        )
-                    )
-                }
+            // Obtener códigos de empresa con elementos pendientes o la empresa principal por defecto
+            val companyCodes = if (pendingEntries.isNotEmpty()) {
+                pendingEntries.map { it.companyCode }.distinct()
+            } else {
+                listOf("S1-CORP")
             }
 
-            // Descarga de datos maestros (Single Source of Truth)
-            integrationService.pullCloudUpdatesToLocal(database)
+            for (code in companyCodes) {
+                // 1. PUSH SYNC: Subida atómica por lotes (WriteBatch)
+                val pushResult = integrationService.pushPendingChangesToFirestore(database, code)
+                if (pushResult.isSuccess) {
+                    Log.d("BackgroundSyncWorker", "Push Batch completado para $code: ${pushResult.getOrNull()} registros.")
+                } else {
+                    Log.w("BackgroundSyncWorker", "Aviso en Push Batch para $code: ${pushResult.exceptionOrNull()?.message}")
+                }
+
+                // 2. PULL SYNC: Descarga diferencial (Delta Sync) con Last-Write-Wins
+                val pullResult = integrationService.pullDifferentialUpdatesFromFirestore(database, code)
+                if (pullResult.isSuccess) {
+                    Log.d("BackgroundSyncWorker", "Pull Delta completado para $code: ${pullResult.getOrNull()} cambios aplicados.")
+                }
+            }
 
             Result.success()
         } catch (e: Exception) {

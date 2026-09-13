@@ -81,6 +81,9 @@ interface ShiftDao {
     @Query("SELECT * FROM shifts WHERE employeeId = :empId ORDER BY date DESC")
     fun getShiftsForEmployee(empId: Long): Flow<List<Shift>>
 
+    @Query("SELECT * FROM shifts WHERE id = :id LIMIT 1")
+    suspend fun getShiftById(id: Long): Shift?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertShift(shift: Shift): Long
 

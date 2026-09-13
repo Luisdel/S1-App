@@ -284,25 +284,254 @@ class IntegrationService(private val context: Context) {
     }
 
     /**
-     * Descarga deltas de actualización desde Firestore
+     * PUSH SYNC (Subida Optimizada):
+     * Agrupa registros locales con estado PENDING o FAILED y los sube usando WriteBatch a Firestore.
+     * El estado en Room SOLO se actualiza a SYNCED si Firebase confirma la transacción con éxito (.await()).
      */
-    suspend fun pullCloudUpdatesToLocal(database: AppDatabase, companyCode: String = "S1-CORP"): Result<Int> = withContext(Dispatchers.IO) {
+    suspend fun pushPendingChangesToFirestore(
+        database: AppDatabase,
+        companyCode: String
+    ): Result<Int> = withContext(Dispatchers.IO) {
+        val cleanCode = companyCode.trim().uppercase()
         if (!isNetworkAvailable()) {
-            return@withContext Result.failure(Exception("Sin conexión para descargar actualizaciones cloud."))
+            return@withContext Result.failure(Exception("Sin conexión a red para subida (Push Sync)"))
         }
-        val firestore = getFirestore() ?: return@withContext Result.success(0)
+
+        val firestore = getFirestore()
+            ?: return@withContext Result.failure(Exception("Firebase Firestore no inicializado en el dispositivo"))
+
         try {
-            val cleanCode = companyCode.trim().uppercase()
+            val pendingClocks = database.timeClockDao().getPendingClockEntriesForCompany(cleanCode)
+            if (pendingClocks.isEmpty()) {
+                return@withContext Result.success(0)
+            }
+
+            var totalPushed = 0
+            val now = System.currentTimeMillis()
+
+            // Firestore WriteBatch admite un máximo de 500 operaciones atómicas por lote
+            for (chunk in pendingClocks.chunked(500)) {
+                val batch = firestore.batch()
+                val batchEntries = mutableListOf<Pair<TimeClockEntry, String>>()
+
+                for (entry in chunk) {
+                    val clockDocId = if (!entry.serverSyncId.isNullOrBlank()) {
+                        entry.serverSyncId
+                    } else {
+                        "CLK-${entry.id}-${UUID.randomUUID().toString().take(6).uppercase()}"
+                    }
+
+                    val docRef = firestore.collection("companies")
+                        .document(cleanCode)
+                        .collection("time_clocks")
+                        .document(clockDocId)
+
+                    val payload = hashMapOf(
+                        "id" to entry.id,
+                        "companyCode" to cleanCode,
+                        "employeeId" to entry.employeeId,
+                        "employeeName" to entry.employeeName,
+                        "department" to entry.department,
+                        "clockType" to entry.clockType.name,
+                        "timestamp" to entry.timestamp,
+                        "formattedTime" to entry.formattedTime,
+                        "formattedDate" to entry.formattedDate,
+                        "locationTag" to entry.locationTag,
+                        "updatedAt" to entry.updatedAt
+                    )
+
+                    batch.set(docRef, payload, SetOptions.merge())
+                    batchEntries.add(Pair(entry, clockDocId))
+                }
+
+                // Transacción atómica en Firebase
+                batch.commit().await()
+
+                // CONDICIÓN ESTRICTA: Solo tras la confirmación exitosa de Firebase,
+                // Room (la SSOT) actualiza su estado a SYNCED
+                for ((entry, clockDocId) in batchEntries) {
+                    database.timeClockDao().updateClockEntry(
+                        entry.copy(
+                            syncStatus = SyncStatus.SYNCED,
+                            serverSyncId = clockDocId,
+                            lastSyncAttemptAt = now
+                        )
+                    )
+                }
+                totalPushed += batchEntries.size
+            }
+
+            Result.success(totalPushed)
+        } catch (e: Exception) {
+            Log.e("IntegrationService", "Fallo al enviar batch a Firestore: ${e.message}", e)
+            // Marcar intentos fallidos en Room sin cambiar a SYNCED
+            try {
+                val pending = database.timeClockDao().getPendingClockEntriesForCompany(cleanCode)
+                val failNow = System.currentTimeMillis()
+                for (p in pending) {
+                    database.timeClockDao().updateClockEntry(
+                        p.copy(
+                            syncStatus = SyncStatus.FAILED,
+                            syncAttempts = p.syncAttempts + 1,
+                            lastSyncAttemptAt = failNow
+                        )
+                    )
+                }
+            } catch (ignored: Exception) {}
+
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * PULL SYNC (Descarga Diferencial - Delta Sync):
+     * Consulta Firestore filtrando por 'updatedAt' > lastSyncTimestamp para traer estrictamente
+     * los registros nuevos o modificados, manteniendo el consumo en el Plan Spark a coste cero.
+     * Resuelve conflictos mediante política Last-Write-Wins (LWW) en Room (SSOT).
+     */
+    suspend fun pullDifferentialUpdatesFromFirestore(
+        database: AppDatabase,
+        companyCode: String
+    ): Result<Int> = withContext(Dispatchers.IO) {
+        val cleanCode = companyCode.trim().uppercase()
+        if (!isNetworkAvailable()) {
+            return@withContext Result.failure(Exception("Sin conexión para descarga diferencial"))
+        }
+
+        val firestore = getFirestore()
+            ?: return@withContext Result.failure(Exception("Firebase Firestore no disponible"))
+
+        try {
             val prefKey = "last_sync_timestamp_$cleanCode"
             val lastSync = prefs.getLong(prefKey, 0L)
-            val snapshot = firestore.collection("companies")
+            val syncStartTimestamp = System.currentTimeMillis()
+            var totalPulled = 0
+
+            // 1. Delta Sync de EMPLEADOS
+            val employeesSnapshot = firestore.collection("companies")
                 .document(cleanCode)
-                .collection("time_clocks")
+                .collection("employees")
                 .whereGreaterThan("updatedAt", lastSync)
                 .get()
                 .await()
-            Result.success(snapshot.size())
+
+            for (doc in employeesSnapshot.documents) {
+                try {
+                    val email = doc.getString("email") ?: continue
+                    val remoteUpdatedAt = doc.getLong("updatedAt") ?: syncStartTimestamp
+                    val localEmp = database.employeeDao().getEmployeeByCompanyAndEmail(cleanCode, email)
+
+                    if (localEmp == null) {
+                        // Insertar nuevo empleado descargado
+                        val newEmp = Employee(
+                            companyCode = cleanCode,
+                            name = doc.getString("name") ?: "Empleado",
+                            email = email,
+                            phone = doc.getString("phone") ?: "",
+                            passwordHash = doc.getString("passwordHash") ?: "123456",
+                            isMasterAdmin = doc.getBoolean("isMasterAdmin") ?: false,
+                            authProvider = doc.getString("authProvider") ?: "LOCAL",
+                            jobTitle = doc.getString("jobTitle") ?: "Empleado",
+                            department = doc.getString("department") ?: "Operaciones",
+                            project = doc.getString("project") ?: "General",
+                            functionalArea = doc.getString("functionalArea") ?: "Operaciones",
+                            systemRole = try {
+                                SystemRole.valueOf(doc.getString("systemRole") ?: "EMPLOYEE")
+                            } catch (e: Exception) { SystemRole.EMPLOYEE },
+                            status = try {
+                                EmployeeStatus.valueOf(doc.getString("status") ?: "ACTIVO")
+                            } catch (e: Exception) { EmployeeStatus.ACTIVO },
+                            avatarColorHex = doc.getLong("avatarColorHex") ?: 0xFF2563EB,
+                            hireDate = doc.getString("hireDate") ?: "2024-01-15",
+                            notes = doc.getString("notes") ?: "",
+                            updatedAt = remoteUpdatedAt
+                        )
+                        database.employeeDao().insertEmployee(newEmp)
+                        totalPulled++
+                    } else if (remoteUpdatedAt > localEmp.updatedAt) {
+                        // Last-Write-Wins: El remoto es más reciente, actualizar Room
+                        val updated = localEmp.copy(
+                            name = doc.getString("name") ?: localEmp.name,
+                            phone = doc.getString("phone") ?: localEmp.phone,
+                            passwordHash = doc.getString("passwordHash") ?: localEmp.passwordHash,
+                            jobTitle = doc.getString("jobTitle") ?: localEmp.jobTitle,
+                            department = doc.getString("department") ?: localEmp.department,
+                            systemRole = try {
+                                SystemRole.valueOf(doc.getString("systemRole") ?: localEmp.systemRole.name)
+                            } catch (e: Exception) { localEmp.systemRole },
+                            status = try {
+                                EmployeeStatus.valueOf(doc.getString("status") ?: localEmp.status.name)
+                            } catch (e: Exception) { localEmp.status },
+                            updatedAt = remoteUpdatedAt
+                        )
+                        database.employeeDao().updateEmployee(updated)
+                        totalPulled++
+                    }
+                } catch (e: Exception) {
+                    Log.w("IntegrationService", "Error procesando delta de empleado", e)
+                }
+            }
+
+            // 2. Delta Sync de TURNOS (Shifts)
+            val shiftsSnapshot = firestore.collection("companies")
+                .document(cleanCode)
+                .collection("shifts")
+                .whereGreaterThan("updatedAt", lastSync)
+                .get()
+                .await()
+
+            for (doc in shiftsSnapshot.documents) {
+                try {
+                    val remoteShiftId = doc.getLong("id") ?: 0L
+                    val remoteUpdatedAt = doc.getLong("updatedAt") ?: syncStartTimestamp
+                    val localShift = if (remoteShiftId > 0) database.shiftDao().getShiftById(remoteShiftId) else null
+
+                    if (localShift == null) {
+                        val newShift = Shift(
+                            id = if (remoteShiftId > 0) remoteShiftId else 0,
+                            companyCode = cleanCode,
+                            employeeId = doc.getLong("employeeId") ?: 0L,
+                            employeeName = doc.getString("employeeName") ?: "",
+                            department = doc.getString("department") ?: "Operaciones",
+                            date = doc.getString("date") ?: "",
+                            shiftType = try {
+                                ShiftType.valueOf(doc.getString("shiftType") ?: "MANANA")
+                            } catch (e: Exception) { ShiftType.MANANA },
+                            startTime = doc.getString("startTime") ?: "08:00",
+                            endTime = doc.getString("endTime") ?: "16:00",
+                            notes = doc.getString("notes") ?: "",
+                            updatedAt = remoteUpdatedAt
+                        )
+                        database.shiftDao().insertShift(newShift)
+                        totalPulled++
+                    } else if (remoteUpdatedAt > localShift.updatedAt) {
+                        // Last-Write-Wins: Sobrescribir en Room con la versión remota más reciente
+                        val updated = localShift.copy(
+                            employeeName = doc.getString("employeeName") ?: localShift.employeeName,
+                            department = doc.getString("department") ?: localShift.department,
+                            date = doc.getString("date") ?: localShift.date,
+                            shiftType = try {
+                                ShiftType.valueOf(doc.getString("shiftType") ?: localShift.shiftType.name)
+                            } catch (e: Exception) { localShift.shiftType },
+                            startTime = doc.getString("startTime") ?: localShift.startTime,
+                            endTime = doc.getString("endTime") ?: localShift.endTime,
+                            notes = doc.getString("notes") ?: localShift.notes,
+                            updatedAt = remoteUpdatedAt
+                        )
+                        database.shiftDao().updateShift(updated)
+                        totalPulled++
+                    }
+                } catch (e: Exception) {
+                    Log.w("IntegrationService", "Error procesando delta de turno", e)
+                }
+            }
+
+            // Guardar nuevo cursor temporal para la próxima sincronización diferencial
+            prefs.edit().putLong(prefKey, syncStartTimestamp).apply()
+
+            Result.success(totalPulled)
         } catch (e: Exception) {
+            Log.e("IntegrationService", "Error en Pull Delta Sync", e)
             Result.failure(e)
         }
     }
@@ -319,7 +548,7 @@ class IntegrationService(private val context: Context) {
                 success = false,
                 syncedClocksCount = 0,
                 pulledUpdatesCount = 0,
-                message = "Dispositivo sin conexión a internet (Modo Offline). Operando con base de datos local Room. Los cambios se sincronizarán al recuperar la cobertura.",
+                message = "Dispositivo sin conexión a internet (Modo Offline). Operando con Room como única fuente de verdad (SSOT).",
                 isCloudConnected = false
             )
         }
@@ -343,82 +572,25 @@ class IntegrationService(private val context: Context) {
                 success = true,
                 syncedClocksCount = count,
                 pulledUpdatesCount = 0,
-                message = "Modo Offline-First activo: $count fichajes consolidados localmente en SQLite Room. Para conectar a Firebase Cloud, agrega 'google-services.json' en /app.",
+                message = "Modo Offline-First activo: $count fichajes consolidados localmente en SQLite Room.",
                 isCloudConnected = false
             )
         }
 
         try {
             // 1. PUSH PENDING TIME CLOCKS via WriteBatch
-            val pendingEntries = database.timeClockDao().getPendingClockEntriesForCompany(cleanCode)
-            var pushedCount = 0
-            if (pendingEntries.isNotEmpty()) {
-                val batch = firestore.batch()
-                val updatedEntries = mutableListOf<TimeClockEntry>()
-                val now = System.currentTimeMillis()
+            val pushResult = pushPendingChangesToFirestore(database, cleanCode)
+            val pushedCount = pushResult.getOrDefault(0)
 
-                for (entry in pendingEntries.take(500)) { // Límite de 500 por lote de WriteBatch
-                    val clockId = entry.serverSyncId ?: "CLK-${entry.id}-${UUID.randomUUID().toString().take(6).uppercase()}"
-                    val docRef = firestore.collection("companies")
-                        .document(cleanCode)
-                        .collection("time_clocks")
-                        .document(clockId)
-
-                    val data = hashMapOf(
-                        "id" to entry.id,
-                        "companyCode" to cleanCode,
-                        "employeeId" to entry.employeeId,
-                        "employeeName" to entry.employeeName,
-                        "department" to entry.department,
-                        "clockType" to entry.clockType.name,
-                        "timestamp" to entry.timestamp,
-                        "formattedTime" to entry.formattedTime,
-                        "formattedDate" to entry.formattedDate,
-                        "locationTag" to entry.locationTag,
-                        "updatedAt" to entry.updatedAt
-                    )
-                    batch.set(docRef, data, SetOptions.merge())
-                    updatedEntries.add(
-                        entry.copy(
-                            syncStatus = SyncStatus.SYNCED,
-                            serverSyncId = clockId,
-                            lastSyncAttemptAt = now
-                        )
-                    )
-                }
-                batch.commit().await()
-                for (u in updatedEntries) {
-                    database.timeClockDao().updateClockEntry(u)
-                }
-                pushedCount = updatedEntries.size
-            }
-
-            // 2. PULL DELTAS (Solo documentos donde updatedAt > lastSyncTimestamp)
-            val prefKey = "last_sync_timestamp_$cleanCode"
-            val lastSync = prefs.getLong(prefKey, 0L)
-            val currentSyncTimestamp = System.currentTimeMillis()
-
-            var pulledCount = 0
-            val snapshot = firestore.collection("companies")
-                .document(cleanCode)
-                .collection("time_clocks")
-                .whereGreaterThan("updatedAt", lastSync)
-                .get()
-                .await()
-
-            if (!snapshot.isEmpty) {
-                pulledCount = snapshot.documents.size
-                // Persistir deltas en Room si aplican
-            }
-
-            // Guardar nueva marca de sincronización delta
-            prefs.edit().putLong(prefKey, currentSyncTimestamp).apply()
+            // 2. PULL DELTAS (Solo documentos donde updatedAt > lastSyncTimestamp) con Last-Write-Wins
+            val pullResult = pullDifferentialUpdatesFromFirestore(database, cleanCode)
+            val pulledCount = pullResult.getOrDefault(0)
 
             CloudSyncReport(
                 success = true,
                 syncedClocksCount = pushedCount,
                 pulledUpdatesCount = pulledCount,
-                message = "Sincronización delta con Firebase Cloud Firestore exitosa para $cleanCode. $pushedCount fichajes subidos en batch, $pulledCount cambios descargados.",
+                message = "Sincronización delta con Firebase Firestore completada ($cleanCode): $pushedCount registros subidos en lote atómico, $pulledCount deltas sincronizados (LWW).",
                 isCloudConnected = true
             )
         } catch (e: Exception) {

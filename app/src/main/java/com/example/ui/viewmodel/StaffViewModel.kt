@@ -13,6 +13,7 @@ import com.example.data.sync.BackgroundSyncWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 
 data class StaffKpis(
@@ -287,19 +288,25 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             val company = repository.getCompanyByCode(cleanCode)
             if (company == null) {
-                onResult(false, "No se encontró la empresa con código '$cleanCode'. Verifica el código con tu Administrador.")
+                withContext(Dispatchers.Main) {
+                    onResult(false, "No se encontró la empresa con código '$cleanCode'. Verifica el código con tu Administrador.")
+                }
                 return@launch
             }
 
             val existing = repository.getEmployeeByCompanyAndEmail(cleanCode, cleanEmail)
             if (existing == null) {
-                onResult(false, "No hay ningún empleado registrado con el correo $cleanEmail en la empresa '$cleanCode'. Tu Administrador debe darte de alta previamente.")
+                withContext(Dispatchers.Main) {
+                    onResult(false, "No hay ningún empleado registrado con el correo $cleanEmail en la empresa '$cleanCode'. Tu Administrador debe darte de alta previamente.")
+                }
                 return@launch
             }
 
             val validPass = existing.passwordHash.isBlank() || existing.passwordHash == cleanPassword
             if (!validPass) {
-                onResult(false, "Contraseña incorrecta. Consulta con el Administrador de tu empresa para verificar tus credenciales.")
+                withContext(Dispatchers.Main) {
+                    onResult(false, "Contraseña incorrecta. Consulta con el Administrador de tu empresa para verificar tus credenciales.")
+                }
                 return@launch
             }
 
@@ -314,7 +321,9 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
             val roleDesc = if (existing.isMasterAdmin) "Administrador Maestro 👑" else existing.systemRole.label
             _currentUserName.value = "${existing.name} ($roleDesc)"
             _statusMessage.value = "Sesión iniciada en ${company.name} como ${existing.name} ($roleDesc)"
-            onResult(true, "¡Bienvenido de nuevo, ${existing.name}! Acceso verificado en ${company.name} ($roleDesc).")
+            withContext(Dispatchers.Main) {
+                onResult(true, "¡Bienvenido de nuevo, ${existing.name}! Acceso verificado en ${company.name} ($roleDesc).")
+            }
         }
     }
 
@@ -420,7 +429,9 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
 
             val welcomeMsg = "¡Entorno empresarial '$cleanName' ($cleanCode) creado con éxito! Como Administrador Maestro, ahora puedes dar de alta a tus empleados desde el módulo Personal y proporcionarles sus claves de acceso."
             _statusMessage.value = welcomeMsg
-            onResult(true, welcomeMsg)
+            withContext(Dispatchers.Main) {
+                onResult(true, welcomeMsg)
+            }
         }
     }
 
@@ -443,7 +454,9 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             val company = repository.getCompanyByCode(cleanCode)
             if (company == null) {
-                onResult(false, "No se encontró la empresa con código '$cleanCode'.")
+                withContext(Dispatchers.Main) {
+                    onResult(false, "No se encontró la empresa con código '$cleanCode'.")
+                }
                 return@launch
             }
 
@@ -460,9 +473,13 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
                 val roleDesc = if (updated.isMasterAdmin) "Administrador Maestro 👑" else updated.systemRole.label
                 _currentUserName.value = "${updated.name} ($roleDesc)"
                 _statusMessage.value = "Sesión iniciada con Google: ${updated.name} en ${company.name}"
-                onResult(true, "Acceso con Google verificado en ${company.name}. ¡Bienvenido/a, ${updated.name}!")
+                withContext(Dispatchers.Main) {
+                    onResult(true, "Acceso con Google verificado en ${company.name}. ¡Bienvenido/a, ${updated.name}!")
+                }
             } else {
-                onResult(false, "No tienes cuenta asignada en la empresa ${company.name} ($cleanCode). Contacta con el Administrador para que cree tu perfil de empleado.")
+                withContext(Dispatchers.Main) {
+                    onResult(false, "No tienes cuenta asignada en la empresa ${company.name} ($cleanCode). Contacta con el Administrador para que cree tu perfil de empleado.")
+                }
             }
         }
     }
