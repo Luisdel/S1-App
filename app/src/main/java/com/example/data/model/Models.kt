@@ -150,9 +150,20 @@ enum class SyncStatus(val label: String, val colorHex: Long) {
     FAILED("Error de sincronización", 0xFFEF4444)
 }
 
+@Entity(tableName = "companies")
+data class CompanyEnvironment(
+    @PrimaryKey val code: String, // Código identificador único en mayúsculas, ej: "S1-CORP", "ACME"
+    val name: String,
+    val adminEmail: String,
+    val adminName: String,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
 @Entity(tableName = "employees")
 data class Employee(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val companyCode: String = "S1-CORP",
     val name: String,
     val email: String, // Correo electrónico civil único
     val phone: String = "", // Número de teléfono (opcional)
@@ -168,12 +179,14 @@ data class Employee(
     val status: EmployeeStatus = EmployeeStatus.ACTIVO,
     val avatarColorHex: Long = 0xFF2563EB,
     val hireDate: String = "2024-01-15",
-    val notes: String = ""
+    val notes: String = "",
+    val updatedAt: Long = System.currentTimeMillis()
 )
 
 @Entity(tableName = "shifts")
 data class Shift(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val companyCode: String = "S1-CORP",
     val employeeId: Long,
     val employeeName: String,
     val department: String,
@@ -181,12 +194,14 @@ data class Shift(
     val shiftType: ShiftType,
     val startTime: String,
     val endTime: String,
-    val notes: String = ""
+    val notes: String = "",
+    val updatedAt: Long = System.currentTimeMillis()
 )
 
 @Entity(tableName = "time_off_requests")
 data class TimeOffRequest(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val companyCode: String = "S1-CORP",
     val employeeId: Long,
     val employeeName: String,
     val department: String,
@@ -201,12 +216,14 @@ data class TimeOffRequest(
     val status: RequestStatus = RequestStatus.PENDIENTE,
     val requestedAt: Long = System.currentTimeMillis(),
     val reviewedBy: String? = null,
-    val reviewedAt: Long? = null
+    val reviewedAt: Long? = null,
+    val updatedAt: Long = System.currentTimeMillis()
 )
 
 @Entity(tableName = "time_clock_entries")
 data class TimeClockEntry(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val companyCode: String = "S1-CORP",
     val employeeId: Long,
     val employeeName: String,
     val department: String,
@@ -214,16 +231,19 @@ data class TimeClockEntry(
     val timestamp: Long = System.currentTimeMillis(),
     val formattedTime: String, // "HH:mm:ss"
     val formattedDate: String, // "YYYY-MM-DD"
-    val locationTag: String = "Sótano / Instalación sin cobertura",
+    val locationTag: String = "Sede Central - Acceso",
     val syncStatus: SyncStatus = SyncStatus.PENDING,
     val syncAttempts: Int = 0,
     val lastSyncAttemptAt: Long? = null,
-    val serverSyncId: String? = null
+    val serverSyncId: String? = null,
+    val notes: String? = null,
+    val updatedAt: Long = System.currentTimeMillis()
 )
 
 @Entity(tableName = "daily_tasks")
 data class DailyTask(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val companyCode: String = "S1-CORP",
     val employeeId: Long = 0L,
     val employeeName: String = "",
     val department: String,
@@ -232,12 +252,14 @@ data class DailyTask(
     val title: String,
     val description: String = "",
     val priority: TaskPriority = TaskPriority.MEDIA,
-    val status: TaskStatus = TaskStatus.PENDIENTE
+    val status: TaskStatus = TaskStatus.PENDIENTE,
+    val updatedAt: Long = System.currentTimeMillis()
 )
 
 @Entity(tableName = "performance_reviews")
 data class PerformanceReview(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val companyCode: String = "S1-CORP",
     val employeeId: Long,
     val employeeName: String,
     val date: String, // "YYYY-MM-DD"
@@ -248,7 +270,8 @@ data class PerformanceReview(
     val goalsAchieved: Int,
     val totalGoals: Int,
     val feedback: String,
-    val reviewerName: String
+    val reviewerName: String,
+    val updatedAt: Long = System.currentTimeMillis()
 )
 
 @Entity(tableName = "notification_logs")

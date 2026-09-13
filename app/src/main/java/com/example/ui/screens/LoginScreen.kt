@@ -27,37 +27,45 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.example.data.model.CompanyEnvironment
 import com.example.data.model.Employee
 import com.example.data.model.SystemRole
 import com.example.ui.theme.*
 
 enum class AuthTab {
     LOGIN,
-    REGISTER
+    CREATE_COMPANY
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(
-    employees: List<Employee>,
-    onLoginWithCredentials: (email: String, password: String, onResult: (Boolean, String) -> Unit) -> Unit,
-    onRegister: (name: String, email: String, password: String, phone: String, onResult: (Boolean, String) -> Unit) -> Unit,
-    onGoogleSignIn: (email: String, name: String, onResult: (Boolean, String) -> Unit) -> Unit,
+    companies: List<CompanyEnvironment> = emptyList(),
+    currentCompanyCode: String = "S1-CORP",
+    employees: List<Employee> = emptyList(),
+    onSelectCompany: (String) -> Unit = {},
+    onLoginWithCredentials: (companyCode: String, email: String, password: String, onResult: (Boolean, String) -> Unit) -> Unit,
+    onCreateCompany: (companyName: String, companyCode: String, adminName: String, adminEmail: String, adminPassword: String, adminPhone: String, onResult: (Boolean, String) -> Unit) -> Unit,
+    onGoogleSignIn: (email: String, name: String, companyCode: String, onResult: (Boolean, String) -> Unit) -> Unit,
     onQuickLogin: (Employee) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var activeTab by remember { mutableStateOf(AuthTab.LOGIN) }
 
-    // Form inputs
+    // Form inputs - Login
+    var loginCompanyCode by remember { mutableStateOf(currentCompanyCode) }
     var loginEmail by remember { mutableStateOf("") }
     var loginPassword by remember { mutableStateOf("") }
     var showLoginPassword by remember { mutableStateOf(false) }
 
-    var registerName by remember { mutableStateOf("") }
-    var registerEmail by remember { mutableStateOf("") }
-    var registerPassword by remember { mutableStateOf("") }
-    var showRegisterPassword by remember { mutableStateOf(false) }
-    var registerPhone by remember { mutableStateOf("") }
+    // Form inputs - Crear Entorno Empresarial (Solo Administradores)
+    var companyNameInput by remember { mutableStateOf("") }
+    var companyCodeInput by remember { mutableStateOf("") }
+    var adminNameInput by remember { mutableStateOf("") }
+    var adminEmailInput by remember { mutableStateOf("") }
+    var adminPasswordInput by remember { mutableStateOf("") }
+    var showAdminPassword by remember { mutableStateOf(false) }
+    var adminPhoneInput by remember { mutableStateOf("") }
 
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var infoMessage by remember { mutableStateOf<String?>(null) }
@@ -66,8 +74,10 @@ fun LoginScreen(
 
     val focusManager = LocalFocusManager.current
 
-    val hasMasterAdmin = remember(employees) {
-        employees.any { it.isMasterAdmin }
+    LaunchedEffect(currentCompanyCode) {
+        if (loginCompanyCode.isBlank()) {
+            loginCompanyCode = currentCompanyCode
+        }
     }
 
     Box(
@@ -90,37 +100,37 @@ fun LoginScreen(
             // Logo Header
             Box(
                 modifier = Modifier
-                    .size(64.dp)
-                    .clip(RoundedCornerShape(16.dp))
+                    .size(68.dp)
+                    .clip(RoundedCornerShape(18.dp))
                     .background(PrimaryBlue),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Default.Shield,
-                    contentDescription = "StaffHub Logo",
-                    tint = Color.White,
-                    modifier = Modifier.size(36.dp)
+                Text(
+                    text = "S1",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Black,
+                    color = Color.White
                 )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             Text(
-                text = "StaffHub",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
+                text = "S1",
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.ExtraBold,
                 color = MaterialTheme.colorScheme.onBackground
             )
 
             Text(
-                text = "Sistema de Gestión y Control de Acceso RBAC",
+                text = "Control Horario, Gestión de Turnos y Personal",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            // Info Card: Policy explanation
+            // Info Card: Opacidad y Aislamiento Multi-Empresa
             Card(
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
@@ -133,39 +143,33 @@ fun LoginScreen(
                     verticalAlignment = Alignment.Top
                 ) {
                     Icon(
-                        imageVector = Icons.Default.AdminPanelSettings,
+                        imageVector = Icons.Default.Business,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .size(22.dp)
-                            .padding(top = 2.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Column {
                         Text(
-                            text = if (!hasMasterAdmin) "Primer Inicio: Creación de Administrador Maestro" else "Seguridad y Roles Asignados",
-                            style = MaterialTheme.typography.labelMedium,
+                            text = "Entorno Multi-Empresarial Seguro",
+                            style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSecondaryContainer
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = if (!hasMasterAdmin) {
-                                "El primer usuario que se registre se convertirá automáticamente en el Administrador Maestro (cuenta no borrable). Luego desde el panel creará los demás administradores."
-                            } else {
-                                "Los empleados solo pueden usar el rol fijado por el Administrador. Solo el Administrador puede alternar temporalmente al modo empleado para solicitar turnos o permisos."
-                            },
+                            text = "Cada organización opera en un entorno privado y opaco. Los empleados acceden con el código de su empresa y las credenciales facilitadas por su Administrador.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.9f)
+                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f)
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
-            // Primary Tab Switcher (Iniciar Sesión / Registrarse)
-            PrimaryTabRow(
+            // Auth Tabs: Acceso a Empresa vs Nueva Empresa
+            TabRow(
                 selectedTabIndex = if (activeTab == AuthTab.LOGIN) 0 else 1,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -180,460 +184,656 @@ fun LoginScreen(
                         infoMessage = null
                     },
                     text = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Login, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Iniciar Sesión", fontWeight = FontWeight.Bold)
-                        }
-                    }
+                        Text(
+                            text = "Acceso a Empresa",
+                            fontWeight = if (activeTab == AuthTab.LOGIN) FontWeight.Bold else FontWeight.Normal
+                        )
+                    },
+                    icon = { Icon(Icons.Default.Login, contentDescription = null, modifier = Modifier.size(18.dp)) }
                 )
                 Tab(
-                    selected = activeTab == AuthTab.REGISTER,
+                    selected = activeTab == AuthTab.CREATE_COMPANY,
                     onClick = {
-                        activeTab = AuthTab.REGISTER
+                        activeTab = AuthTab.CREATE_COMPANY
                         errorMessage = null
                         infoMessage = null
                     },
                     text = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (!hasMasterAdmin) "Registrar Maestro" else "Crear Cuenta",
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
+                        Text(
+                            text = "Nueva Empresa",
+                            fontWeight = if (activeTab == AuthTab.CREATE_COMPANY) FontWeight.Bold else FontWeight.Normal
+                        )
+                    },
+                    icon = { Icon(Icons.Default.AddBusiness, contentDescription = null, modifier = Modifier.size(18.dp)) }
                 )
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            // Feedback alerts
+            // Alert Banners
             AnimatedVisibility(visible = errorMessage != null) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = RoseError.copy(alpha = 0.12f)),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 12.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                errorMessage?.let { msg ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp)
                     ) {
-                        Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = RoseError)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = errorMessage ?: "",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = RoseError
-                        )
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.Error,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = msg,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                     }
                 }
             }
 
             AnimatedVisibility(visible = infoMessage != null) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = EmeraldSuccess.copy(alpha = 0.12f)),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 12.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                infoMessage?.let { msg ->
+                    Surface(
+                        color = PrimaryBlue.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp)
                     ) {
-                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = EmeraldSuccess)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = infoMessage ?: "",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = EmeraldSuccess
-                        )
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = PrimaryBlue,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = msg,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                     }
                 }
             }
 
-            // Main Auth Form Card
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+            // =========================================================================
+            // TAB 1: LOGIN (ACCESO A EMPRESA CON CÓDIGO Y CREDENCIALES)
+            // =========================================================================
+            if (activeTab == AuthTab.LOGIN) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                 ) {
-                    if (activeTab == AuthTab.LOGIN) {
-                        // === LOGIN TAB ===
+                    Column(modifier = Modifier.padding(16.dp)) {
                         Text(
-                            text = "Acceso con Correo y Contraseña",
-                            style = MaterialTheme.typography.titleSmall,
+                            text = "Identificación de Personal",
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
+                        Text(
+                            text = "Introduce el código de tu empresa y tus credenciales asignadas:",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
 
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // Selector / Input de Código de Empresa
+                        OutlinedTextField(
+                            value = loginCompanyCode,
+                            onValueChange = {
+                                loginCompanyCode = it.uppercase()
+                                onSelectCompany(it.uppercase())
+                            },
+                            label = { Text("Código de Empresa") },
+                            placeholder = { Text("ej: S1-CORP") },
+                            leadingIcon = {
+                                Icon(Icons.Default.Business, contentDescription = null, tint = PrimaryBlue)
+                            },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("login_company_code_input")
+                        )
+
+                        // Chips de empresas guardadas en este dispositivo
+                        if (companies.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "Empresas:",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                companies.forEach { comp ->
+                                    val isSelected = loginCompanyCode.equals(comp.code, ignoreCase = true)
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = {
+                                            loginCompanyCode = comp.code
+                                            onSelectCompany(comp.code)
+                                        },
+                                        label = {
+                                            Text(
+                                                text = comp.code,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                            )
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Email
                         OutlinedTextField(
                             value = loginEmail,
-                            onValueChange = {
-                                loginEmail = it
-                                errorMessage = null
+                            onValueChange = { loginEmail = it },
+                            label = { Text("Correo electrónico asignado") },
+                            placeholder = { Text("tu.nombre@empresa.com") },
+                            leadingIcon = {
+                                Icon(Icons.Default.Email, contentDescription = null, tint = PrimaryBlue)
                             },
-                            label = { Text("Correo Electrónico Civil") },
-                            placeholder = { Text("ejemplo: laura.martinez@empresa.com") },
-                            leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Email,
+                                imeAction = ImeAction.Next
+                            ),
                             singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("login_email_input")
                         )
 
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Password
                         OutlinedTextField(
                             value = loginPassword,
-                            onValueChange = {
-                                loginPassword = it
-                                errorMessage = null
+                            onValueChange = { loginPassword = it },
+                            label = { Text("Contraseña") },
+                            leadingIcon = {
+                                Icon(Icons.Default.Lock, contentDescription = null, tint = PrimaryBlue)
                             },
-                            label = { Text("Contraseña de Acceso") },
-                            leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
                             trailingIcon = {
                                 IconButton(onClick = { showLoginPassword = !showLoginPassword }) {
                                     Icon(
-                                        imageVector = if (showLoginPassword) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                        contentDescription = if (showLoginPassword) "Ocultar" else "Mostrar"
+                                        imageVector = if (showLoginPassword) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                        contentDescription = if (showLoginPassword) "Ocultar contraseña" else "Mostrar contraseña"
                                     )
                                 }
                             },
                             visualTransformation = if (showLoginPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Password,
+                                imeAction = ImeAction.Done
+                            ),
+                            keyboardActions = KeyboardActions(
+                                onDone = { focusManager.clearFocus() }
+                            ),
                             singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
-                            keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("login_password_input")
                         )
 
+                        Spacer(modifier = Modifier.height(18.dp))
+
+                        // Submit Button
                         Button(
                             onClick = {
-                                focusManager.clearFocus()
+                                if (loginCompanyCode.isBlank()) {
+                                    errorMessage = "Por favor indica el código de empresa"
+                                    return@Button
+                                }
+                                if (loginEmail.isBlank()) {
+                                    errorMessage = "Introduce tu correo electrónico"
+                                    return@Button
+                                }
+                                if (loginPassword.isBlank()) {
+                                    errorMessage = "Introduce tu contraseña de acceso"
+                                    return@Button
+                                }
                                 isLoading = true
                                 errorMessage = null
-                                onLoginWithCredentials(loginEmail, loginPassword) { success, msg ->
+                                infoMessage = null
+                                onLoginWithCredentials(
+                                    loginCompanyCode.trim().uppercase(),
+                                    loginEmail.trim(),
+                                    loginPassword.trim()
+                                ) { success, msg ->
                                     isLoading = false
-                                    if (!success) {
-                                        errorMessage = msg
-                                    }
-                                }
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue),
-                            enabled = !isLoading && loginEmail.isNotBlank() && loginPassword.isNotBlank(),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp)
-                                .testTag("login_submit_button")
-                        ) {
-                            if (isLoading) {
-                                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
-                            } else {
-                                Icon(Icons.Default.Login, contentDescription = null)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Entrar al Sistema", fontWeight = FontWeight.Bold)
-                            }
-                        }
-
-                    } else {
-                        // === REGISTER TAB ===
-                        Text(
-                            text = if (!hasMasterAdmin) "Registro de Administrador Maestro" else "Registro de Nuevo Empleado",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-
-                        OutlinedTextField(
-                            value = registerName,
-                            onValueChange = { registerName = it; errorMessage = null },
-                            label = { Text("Nombre Completo *") },
-                            placeholder = { Text("Ej: Laura Martínez / Pepe García") },
-                            leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("register_name_input")
-                        )
-
-                        OutlinedTextField(
-                            value = registerEmail,
-                            onValueChange = { registerEmail = it; errorMessage = null },
-                            label = { Text("Correo Electrónico Civil *") },
-                            placeholder = { Text("ejemplo: nombre@empresa.com") },
-                            leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("register_email_input")
-                        )
-
-                        OutlinedTextField(
-                            value = registerPassword,
-                            onValueChange = { registerPassword = it; errorMessage = null },
-                            label = { Text("Contraseña (mínimo 4 caracteres) *") },
-                            leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-                            trailingIcon = {
-                                IconButton(onClick = { showRegisterPassword = !showRegisterPassword }) {
-                                    Icon(
-                                        imageVector = if (showRegisterPassword) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                        contentDescription = if (showRegisterPassword) "Ocultar" else "Mostrar"
-                                    )
-                                }
-                            },
-                            visualTransformation = if (showRegisterPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Next),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("register_password_input")
-                        )
-
-                        OutlinedTextField(
-                            value = registerPhone,
-                            onValueChange = { registerPhone = it },
-                            label = { Text("Teléfono de Contacto (opcional)") },
-                            placeholder = { Text("+34 600 000 000") },
-                            leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Done),
-                            keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        Button(
-                            onClick = {
-                                focusManager.clearFocus()
-                                isLoading = true
-                                errorMessage = null
-                                onRegister(registerName, registerEmail, registerPassword, registerPhone) { success, msg ->
-                                    isLoading = false
-                                    if (!success) {
-                                        errorMessage = msg
-                                    } else {
+                                    if (success) {
                                         infoMessage = msg
+                                    } else {
+                                        errorMessage = msg
                                     }
                                 }
                             },
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (!hasMasterAdmin) AmberWarning else PrimaryBlue
-                            ),
-                            enabled = !isLoading && registerName.isNotBlank() && registerEmail.isNotBlank() && registerPassword.isNotBlank(),
+                            enabled = !isLoading,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(48.dp)
-                                .testTag("register_submit_button")
+                                .height(50.dp)
+                                .testTag("login_submit_button"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
                         ) {
                             if (isLoading) {
-                                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
-                            } else {
-                                Icon(
-                                    imageVector = if (!hasMasterAdmin) Icons.Default.AdminPanelSettings else Icons.Default.PersonAdd,
-                                    contentDescription = null
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    color = Color.White,
+                                    strokeWidth = 2.dp
                                 )
+                            } else {
+                                Icon(Icons.Default.Login, contentDescription = null, modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = if (!hasMasterAdmin) "Registrar como Administrador Maestro" else "Crear Cuenta de Empleado",
+                                    text = "Entrar a ${loginCompanyCode.ifBlank { "la Empresa" }}",
                                     fontWeight = FontWeight.Bold
                                 )
                             }
                         }
-                    }
 
-                    // Divider for Google Authentication
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        HorizontalDivider(modifier = Modifier.weight(1f))
-                        Text(
-                            text = "o bien",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 8.dp)
-                        )
-                        HorizontalDivider(modifier = Modifier.weight(1f))
-                    }
+                        Spacer(modifier = Modifier.height(14.dp))
 
-                    // Google Sign-In Button
-                    OutlinedButton(
-                        onClick = { showGoogleDialog = true },
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(46.dp)
-                            .testTag("google_login_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.AccountCircle,
-                            contentDescription = "Google",
-                            tint = PrimaryBlue
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        HorizontalDivider()
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // Google Sign In Button (validando que el admin haya dado de alta al empleado)
+                        OutlinedButton(
+                            onClick = { showGoogleDialog = true },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("login_google_button"),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AccountCircle,
+                                contentDescription = null,
+                                tint = PrimaryBlue,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Acceder con Cuenta de Google",
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Info,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "¿Eres nuevo? El Administrador de tu empresa debe darte de alta previamente para poder ingresar.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // =========================================================================
+            // TAB 2: NUEVA EMPRESA (SOLO PARA ADMINISTRADORES)
+            // =========================================================================
+            if (activeTab == AuthTab.CREATE_COMPANY) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.AddBusiness, contentDescription = null, tint = PrimaryBlue)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Registrar Nueva Organización",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
                         Text(
-                            text = "Continuar con cuenta de Google",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold
+                            text = "Crea un entorno exclusivo para tu empresa. Como Administrador Maestro podrás registrar a tus empleados y asignarles sus claves de acceso.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // Nombre de la Empresa
+                        OutlinedTextField(
+                            value = companyNameInput,
+                            onValueChange = { companyNameInput = it },
+                            label = { Text("Nombre de la Empresa") },
+                            placeholder = { Text("ej: Tech Logistics S.L.") },
+                            leadingIcon = {
+                                Icon(Icons.Default.Business, contentDescription = null, tint = PrimaryBlue)
+                            },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("create_company_name_input")
+                        )
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Código identificador de la Empresa
+                        OutlinedTextField(
+                            value = companyCodeInput,
+                            onValueChange = { companyCodeInput = it.uppercase() },
+                            label = { Text("Código de Empresa (Mín. 3 letras)") },
+                            placeholder = { Text("ej: TLOG, ACME, CORP") },
+                            leadingIcon = {
+                                Icon(Icons.Default.Pin, contentDescription = null, tint = PrimaryBlue)
+                            },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("create_company_code_input")
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        HorizontalDivider()
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Text(
+                            text = "Datos del Administrador Maestro (Tú):",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Nombre Administrador
+                        OutlinedTextField(
+                            value = adminNameInput,
+                            onValueChange = { adminNameInput = it },
+                            label = { Text("Tu Nombre Completo") },
+                            placeholder = { Text("ej: Carlos López") },
+                            leadingIcon = {
+                                Icon(Icons.Default.Person, contentDescription = null, tint = PrimaryBlue)
+                            },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("create_company_admin_name_input")
+                        )
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Email Administrador
+                        OutlinedTextField(
+                            value = adminEmailInput,
+                            onValueChange = { adminEmailInput = it },
+                            label = { Text("Tu Correo Electrónico (Login)") },
+                            placeholder = { Text("carlos@empresa.com") },
+                            leadingIcon = {
+                                Icon(Icons.Default.Email, contentDescription = null, tint = PrimaryBlue)
+                            },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("create_company_admin_email_input")
+                        )
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Password Administrador
+                        OutlinedTextField(
+                            value = adminPasswordInput,
+                            onValueChange = { adminPasswordInput = it },
+                            label = { Text("Tu Contraseña de Administrador") },
+                            leadingIcon = {
+                                Icon(Icons.Default.Lock, contentDescription = null, tint = PrimaryBlue)
+                            },
+                            trailingIcon = {
+                                IconButton(onClick = { showAdminPassword = !showAdminPassword }) {
+                                    Icon(
+                                        imageVector = if (showAdminPassword) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                        contentDescription = null
+                                    )
+                                }
+                            },
+                            visualTransformation = if (showAdminPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("create_company_admin_password_input")
+                        )
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Teléfono
+                        OutlinedTextField(
+                            value = adminPhoneInput,
+                            onValueChange = { adminPhoneInput = it },
+                            label = { Text("Teléfono de Contacto (Opcional)") },
+                            placeholder = { Text("+34 600 000 000") },
+                            leadingIcon = {
+                                Icon(Icons.Default.Phone, contentDescription = null, tint = PrimaryBlue)
+                            },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(modifier = Modifier.height(18.dp))
+
+                        Button(
+                            onClick = {
+                                if (companyNameInput.isBlank()) {
+                                    errorMessage = "Por favor indica el nombre de la empresa"
+                                    return@Button
+                                }
+                                if (companyCodeInput.trim().length < 3) {
+                                    errorMessage = "El código de empresa debe tener al menos 3 caracteres"
+                                    return@Button
+                                }
+                                if (adminNameInput.isBlank()) {
+                                    errorMessage = "Introduce tu nombre completo"
+                                    return@Button
+                                }
+                                if (adminEmailInput.isBlank() || !adminEmailInput.contains("@")) {
+                                    errorMessage = "Introduce un correo electrónico válido"
+                                    return@Button
+                                }
+                                if (adminPasswordInput.trim().length < 4) {
+                                    errorMessage = "La contraseña debe tener al menos 4 caracteres"
+                                    return@Button
+                                }
+
+                                isLoading = true
+                                errorMessage = null
+                                infoMessage = null
+                                onCreateCompany(
+                                    companyNameInput.trim(),
+                                    companyCodeInput.trim().uppercase(),
+                                    adminNameInput.trim(),
+                                    adminEmailInput.trim(),
+                                    adminPasswordInput.trim(),
+                                    adminPhoneInput.trim()
+                                ) { success, msg ->
+                                    isLoading = false
+                                    if (success) {
+                                        infoMessage = msg
+                                    } else {
+                                        errorMessage = msg
+                                    }
+                                }
+                            },
+                            enabled = !isLoading,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp)
+                                .testTag("create_company_submit_button"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
+                        ) {
+                            if (isLoading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    color = Color.White,
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(Icons.Default.VerifiedUser, contentDescription = null, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Crear Entorno y Entrar como Admin 👑",
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Quick demo cards section
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.Start
-            ) {
-                Row(
+            // =========================================================================
+            // SECCIÓN: ACCESO RÁPIDO EN ESTE DISPOSITIVO (USUARIOS DE LA EMPRESA ACTIVA)
+            // =========================================================================
+            if (employees.isNotEmpty()) {
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Acceso Rápido / Cuentas Preconfiguradas",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Pepe García Quick Card
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            val pepe = employees.find { it.email.contains("pepe@ejemplo.com", ignoreCase = true) }
-                            if (pepe != null) {
-                                onQuickLogin(pepe)
-                            } else {
-                                loginEmail = "pepe@ejemplo.com"
-                                loginPassword = "pepe123"
-                            }
-                        }
-                        .testTag("quick_login_pepe_card"),
-                    colors = CardDefaults.cardColors(containerColor = TealAccent.copy(alpha = 0.12f)),
-                    shape = RoundedCornerShape(14.dp),
-                    border = CardDefaults.outlinedCardBorder()
+                    horizontalAlignment = Alignment.Start
                 ) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(TealAccent),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("PG", fontWeight = FontWeight.Bold, color = Color.White)
+                        Text(
+                            text = "Acceso Rápido • ${loginCompanyCode.ifBlank { "Empresa Activa" }}",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Mostrar empleados de esta empresa
+                    employees.take(4).forEach { emp ->
+                        val isMaster = emp.isMasterAdmin
+                        val roleTag = if (isMaster) "👑 Administrador Maestro" else emp.systemRole.label
+                        val cardBg = when (emp.systemRole) {
+                            SystemRole.ADMIN -> PrimaryBlue.copy(alpha = 0.08f)
+                            SystemRole.MANAGER -> TealAccent.copy(alpha = 0.08f)
+                            SystemRole.EMPLOYEE -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                         }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Pepe García", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = MaterialTheme.colorScheme.surfaceVariant
+
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .clickable { onQuickLogin(emp) }
+                                .testTag("quick_login_${emp.id}"),
+                            colors = CardDefaults.cardColors(containerColor = cardBg),
+                            shape = RoundedCornerShape(12.dp),
+                            border = CardDefaults.outlinedCardBorder()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(emp.avatarColorHex)),
+                                    contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        text = "Empleado (Rol Fijo)",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        text = emp.name.take(2).uppercase(),
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White,
+                                        style = MaterialTheme.typography.labelMedium
                                     )
                                 }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = emp.name,
+                                            fontWeight = FontWeight.Bold,
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = MaterialTheme.colorScheme.surfaceVariant
+                                        ) {
+                                            Text(
+                                                text = roleTag,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = "${emp.email} • Clave: ${emp.passwordHash}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Icon(Icons.Default.ArrowForward, contentDescription = null, tint = PrimaryBlue)
                             }
-                            Text(
-                                text = "pepe@ejemplo.com • Clave: pepe123",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Icon(Icons.Default.ArrowForward, contentDescription = null, tint = TealAccent)
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Laura & Carlos Fast Access
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Admin Master Card
-                    val adminEmp = employees.find { it.isMasterAdmin || it.systemRole == SystemRole.ADMIN }
-                    OutlinedCard(
-                        onClick = {
-                            if (adminEmp != null) onQuickLogin(adminEmp)
-                            else {
-                                loginEmail = "laura.martinez@empresa.com"
-                                loginPassword = "admin123"
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(10.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.AdminPanelSettings, contentDescription = null, modifier = Modifier.size(16.dp), tint = PrimaryBlue)
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Laura (Admin)", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
-                            }
-                            Text("👑 Maestro (admin123)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-
-                    // Manager Card
-                    val managerEmp = employees.find { it.systemRole == SystemRole.MANAGER }
-                    OutlinedCard(
-                        onClick = {
-                            if (managerEmp != null) onQuickLogin(managerEmp)
-                            else {
-                                loginEmail = "carlos.santana@empresa.com"
-                                loginPassword = "manager123"
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(10.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.SupervisorAccount, contentDescription = null, modifier = Modifier.size(16.dp), tint = TealAccent)
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Carlos (Manager)", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
-                            }
-                            Text("Gestor (manager123)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -643,7 +843,7 @@ fun LoginScreen(
         }
     }
 
-    // Google Account Picker Dialog
+    // Google Sign-In Picker Dialog
     if (showGoogleDialog) {
         var customGoogleEmail by remember { mutableStateOf("") }
         var customGoogleName by remember { mutableStateOf("") }
@@ -660,51 +860,33 @@ fun LoginScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = "Selecciona una cuenta sugerida o escribe tu correo de Google para acceder de inmediato:",
+                        text = "Selecciona o escribe el correo corporativo de Google con el que tu Administrador te registró en la empresa $loginCompanyCode:",
                         style = MaterialTheme.typography.bodySmall
                     )
 
-                    // Suggested quick accounts
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                showGoogleDialog = false
-                                onGoogleSignIn("pepe.garcia@gmail.com", "Pepe García") { _, _ -> }
-                            },
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                    // Empleados de la empresa que tienen email
+                    employees.take(2).forEach { emp ->
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showGoogleDialog = false
+                                    onGoogleSignIn(emp.email, emp.name, loginCompanyCode) { success, msg ->
+                                        if (success) infoMessage = msg else errorMessage = msg
+                                    }
+                                },
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                         ) {
-                            Icon(Icons.Default.Person, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column {
-                                Text("Pepe García", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                                Text("pepe.garcia@gmail.com", style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                    }
-
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                showGoogleDialog = false
-                                onGoogleSignIn("admin.empresa@gmail.com", "Admin Maestro") { _, _ -> }
-                            },
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.AdminPanelSettings, contentDescription = null, tint = AmberWarning)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column {
-                                Text("Admin Maestro", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                                Text("admin.empresa@gmail.com", style = MaterialTheme.typography.bodySmall)
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Person, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(emp.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                    Text(emp.email, style = MaterialTheme.typography.bodySmall)
+                                }
                             }
                         }
                     }
@@ -723,7 +905,7 @@ fun LoginScreen(
                     OutlinedTextField(
                         value = customGoogleEmail,
                         onValueChange = { customGoogleEmail = it },
-                        label = { Text("Correo Gmail") },
+                        label = { Text("Correo Google / Gmail") },
                         placeholder = { Text("tu.usuario@gmail.com") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
@@ -737,8 +919,11 @@ fun LoginScreen(
                             showGoogleDialog = false
                             onGoogleSignIn(
                                 customGoogleEmail.trim(),
-                                customGoogleName.trim().ifBlank { "Usuario Google" }
-                            ) { _, _ -> }
+                                customGoogleName.trim().ifBlank { "Usuario Google" },
+                                loginCompanyCode
+                            ) { success, msg ->
+                                if (success) infoMessage = msg else errorMessage = msg
+                            }
                         }
                     },
                     enabled = customGoogleEmail.isNotBlank()

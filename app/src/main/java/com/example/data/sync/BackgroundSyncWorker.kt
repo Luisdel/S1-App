@@ -22,7 +22,7 @@ class BackgroundSyncWorker(
         val integrationService = IntegrationService(applicationContext)
 
         if (!integrationService.isNetworkAvailable()) {
-            Log.d("BackgroundSyncWorker", "Sin conexión de red todavía (dispositivo en sótano o sin señal). Reintentando más tarde.")
+            Log.d("BackgroundSyncWorker", "Sin conexión de red todavía (Modo Offline). Reintentando cuando se recupere la señal.")
             return@withContext Result.retry()
         }
 
@@ -65,12 +65,12 @@ class BackgroundSyncWorker(
     }
 
     companion object {
-        const val UNIQUE_IMMEDIATE_WORK = "StaffHubImmediateSyncWorker"
-        const val UNIQUE_PERIODIC_WORK = "StaffHubPeriodicSyncWorker"
+        const val UNIQUE_IMMEDIATE_WORK = "S1ImmediateSyncWorker"
+        const val UNIQUE_PERIODIC_WORK = "S1PeriodicSyncWorker"
 
         /**
          * Encola una sincronización inmediata que se ejecutará en cuanto el dispositivo
-         * tenga conexión a internet (p.ej. al salir del sótano).
+         * tenga conexión a internet (Modo Online).
          */
         fun enqueueImmediateSync(context: Context) {
             val constraints = Constraints.Builder()

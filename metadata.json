@@ -1,6 +1,6 @@
 {
-  "name": "StaffHub",
-  "description": "Gestión integral de personal: turnos, vacaciones, tareas, desempeño, roles y reportes",
+  "name": "S1",
+  "description": "S1: Gestión integral de personal, turnos, control horario offline y ausencias con cómputo legal",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

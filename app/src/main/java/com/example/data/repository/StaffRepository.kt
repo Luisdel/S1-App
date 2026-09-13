@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.Flow
 
 class StaffRepository(private val database: AppDatabase) {
 
+    val companies: Flow<List<CompanyEnvironment>> = database.companyDao().getAllCompanies()
     val employees: Flow<List<Employee>> = database.employeeDao().getAllEmployees()
     val shifts: Flow<List<Shift>> = database.shiftDao().getAllShifts()
     val timeOffRequests: Flow<List<TimeOffRequest>> = database.timeOffDao().getAllRequests()
@@ -14,6 +15,42 @@ class StaffRepository(private val database: AppDatabase) {
     val notifications: Flow<List<NotificationLog>> = database.notificationDao().getRecentNotifications()
     val clockEntries: Flow<List<TimeClockEntry>> = database.timeClockDao().getAllClockEntries()
     val pendingClockCount: Flow<Int> = database.timeClockDao().getPendingCountFlow()
+
+    // Companies / Multi-Tenant
+    suspend fun insertCompany(company: CompanyEnvironment): Long = database.companyDao().insertCompany(company)
+    suspend fun getCompanyByCode(code: String): CompanyEnvironment? = database.companyDao().getCompanyByCode(code)
+    suspend fun getCompanyCount(): Int = database.companyDao().getCompanyCount()
+
+    // Multi-tenant scoped queries
+    fun getEmployeesForCompany(companyCode: String): Flow<List<Employee>> =
+        database.employeeDao().getEmployeesByCompany(companyCode)
+
+    suspend fun getEmployeeByCompanyAndEmail(companyCode: String, email: String): Employee? =
+        database.employeeDao().getEmployeeByCompanyAndEmail(companyCode, email)
+
+    suspend fun getMasterAdminCountForCompany(companyCode: String): Int =
+        database.employeeDao().getMasterAdminCountForCompany(companyCode)
+
+    fun getShiftsForCompany(companyCode: String): Flow<List<Shift>> =
+        database.shiftDao().getShiftsForCompany(companyCode)
+
+    fun getTimeOffForCompany(companyCode: String): Flow<List<TimeOffRequest>> =
+        database.timeOffDao().getRequestsForCompany(companyCode)
+
+    fun getTasksForCompany(companyCode: String): Flow<List<DailyTask>> =
+        database.taskDao().getTasksForCompany(companyCode)
+
+    fun getReviewsForCompany(companyCode: String): Flow<List<PerformanceReview>> =
+        database.performanceDao().getReviewsForCompany(companyCode)
+
+    fun getClockEntriesForCompany(companyCode: String): Flow<List<TimeClockEntry>> =
+        database.timeClockDao().getClockEntriesForCompany(companyCode)
+
+    fun getPendingClockCountFlowForCompany(companyCode: String): Flow<Int> =
+        database.timeClockDao().getPendingCountFlowForCompany(companyCode)
+
+    suspend fun getPendingClockEntriesForCompany(companyCode: String): List<TimeClockEntry> =
+        database.timeClockDao().getPendingClockEntriesForCompany(companyCode)
 
     // Employees
     suspend fun insertEmployee(employee: Employee): Long = database.employeeDao().insertEmployee(employee)

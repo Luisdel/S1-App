@@ -1,0 +1,177 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================================
+    // FUNCIONES AUXILIARES DE SEGURIDAD Y MULTI-TENANCY
+    // =========================================================================
+
+    // Comprueba si la petición proviene de un usuario autenticado
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Obtiene el email del usuario autenticado en minúsculas
+    function userEmail() {
+      return request.auth.token.email.lower();
+    }
+
+    // Comprueba si el usuario autenticado tiene el custom claim companyCode
+    function hasCompanyClaim(companyCode) {
+      return isAuthenticated() && 
+             request.auth.token.companyCode != null &&
+             request.auth.token.companyCode == companyCode;
+    }
+
+    // Comprueba si el usuario es el Administrador de la empresa en el documento de empresa
+    function isCompanyAdmin(companyCode) {
+      return isAuthenticated() && (
+        (request.auth.token.role == 'ADMIN' && hasCompanyClaim(companyCode)) ||
+        get(/databases/$(database)/documents/companies/$(companyCode)).data.adminEmail.lower() == userEmail()
+      );
+    }
+
+    // Comprueba si existe un registro de empleado para el usuario dentro de esta empresa
+    function getEmployeeDoc(companyCode, employeeId) {
+      return get(/databases/$(database)/documents/companies/$(companyCode)/employees/$(employeeId)).data;
+    }
+
+    // Comprueba si el usuario pertenece a la empresa especificada
+    function belongsToCompany(companyCode) {
+      return isAuthenticated() && (
+        hasCompanyClaim(companyCode) ||
+        isCompanyAdmin(companyCode) ||
+        exists(/databases/$(database)/documents/companies/$(companyCode)/employees/$(request.auth.uid))
+      );
+    }
+
+    // Comprueba si el usuario autenticado es un Administrador o Manager de la empresa
+    function isManagerOrAdmin(companyCode) {
+      return isCompanyAdmin(companyCode) || (
+        belongsToCompany(companyCode) && (
+          request.auth.token.role in ['ADMIN', 'MANAGER'] ||
+          getEmployeeDoc(companyCode, request.auth.uid).systemRole in ['ADMIN', 'MANAGER']
+        )
+      );
+    }
+
+    // Valida que el campo updatedAt esté presente y actualizado en cualquier escritura
+    function hasValidTimestamp() {
+      return request.resource.data.updatedAt is int || 
+             request.resource.data.updatedAt is timestamp;
+    }
+
+    // =========================================================================
+    // COLECCIÓN: EMPRESAS (/companies/{companyCode})
+    // =========================================================================
+    match /companies/{companyCode} {
+      // Lectura: Cualquier usuario de la propia empresa o su administrador
+      allow read: if isAuthenticated() && (
+        isCompanyAdmin(companyCode) ||
+        belongsToCompany(companyCode)
+      );
+
+      // Creación: Un nuevo administrador puede registrar una empresa si está autenticado
+      allow create: if isAuthenticated() &&
+                    request.resource.data.code == companyCode &&
+                    request.resource.data.adminEmail.lower() == userEmail() &&
+                    hasValidTimestamp();
+
+      // Actualización: Solo el Administrador de la empresa
+      allow update: if isCompanyAdmin(companyCode) && hasValidTimestamp();
+
+      // Borrado: Protegido (solo administradores maestros)
+      allow delete: if isCompanyAdmin(companyCode);
+
+      // =======================================================================
+      // SUBCOLECCIÓN: EMPLEADOS (/companies/{companyCode}/employees/{employeeId})
+      // =======================================================================
+      match /employees/{employeeId} {
+        // Lectura: Empleados de la misma empresa pueden consultar el directorio/compañeros
+        allow read: if belongsToCompany(companyCode);
+
+        // Creación: Solo Administradores y Managers pueden dar de alta empleados
+        allow create: if isManagerOrAdmin(companyCode) &&
+                      request.resource.data.companyCode == companyCode &&
+                      hasValidTimestamp();
+
+        // Actualización: 
+        // 1. Admins/Managers pueden actualizar cualquier empleado de su empresa
+        // 2. El propio empleado puede actualizar datos de contacto no sensibles (teléfono, notas, avatar)
+        allow update: if (isManagerOrAdmin(companyCode) || (
+                        belongsToCompany(companyCode) && (
+                          request.auth.uid == employeeId ||
+                          resource.data.email.lower() == userEmail()
+                        ) &&
+                        // El empleado no puede cambiarse su propio rol ni desmarcar isMasterAdmin
+                        request.resource.data.systemRole == resource.data.systemRole &&
+                        request.resource.data.isMasterAdmin == resource.data.isMasterAdmin
+                      )) &&
+                      request.resource.data.companyCode == companyCode &&
+                      hasValidTimestamp();
+
+        // Eliminación: Solo Administradores pueden dar de baja (salvo el Administrador Maestro)
+        allow delete: if isCompanyAdmin(companyCode) && !resource.data.isMasterAdmin;
+      }
+
+      // =======================================================================
+      // SUBCOLECCIÓN: TURNOS (/companies/{companyCode}/shifts/{shiftId})
+      // =======================================================================
+      match /shifts/{shiftId} {
+        // Lectura: Cualquier empleado de la empresa puede consultar los turnos y cuadrantes
+        allow read: if belongsToCompany(companyCode);
+
+        // Creación: Solo Administradores y Managers de la empresa pueden programar turnos
+        allow create: if isManagerOrAdmin(companyCode) &&
+                      request.resource.data.companyCode == companyCode &&
+                      hasValidTimestamp();
+
+        // Actualización: Solo Administradores y Managers pueden reprogramar o modificar turnos
+        allow update: if isManagerOrAdmin(companyCode) &&
+                      request.resource.data.companyCode == companyCode &&
+                      hasValidTimestamp();
+
+        // Eliminación: Solo Administradores y Managers pueden anular turnos asignados
+        allow delete: if isManagerOrAdmin(companyCode);
+      }
+
+      // =======================================================================
+      // SUBCOLECCIÓN: FICHAJES (/companies/{companyCode}/time_clocks/{clockId})
+      // =======================================================================
+      match /time_clocks/{clockId} {
+        // Lectura: Admins/Managers ven todos; un empleado solo ve sus propios fichajes
+        allow read: if isManagerOrAdmin(companyCode) || (
+          belongsToCompany(companyCode) && (
+            resource.data.employeeId == request.auth.uid ||
+            resource.data.employeeEmail.lower() == userEmail()
+          )
+        );
+
+        // Creación: El empleado puede registrar su propio fichaje en su empresa
+        allow create: if belongsToCompany(companyCode) &&
+                      request.resource.data.companyCode == companyCode &&
+                      hasValidTimestamp();
+
+        // Actualización / Validación: Solo supervisores o administradores
+        allow update: if isManagerOrAdmin(companyCode) && hasValidTimestamp();
+        allow delete: if isCompanyAdmin(companyCode);
+      }
+
+      // =======================================================================
+      // SUBCOLECCIÓN: SOLICITUDES DE PERMISOS (/companies/{companyCode}/time_off_requests/{reqId})
+      // =======================================================================
+      match /time_off_requests/{reqId} {
+        allow read: if belongsToCompany(companyCode);
+        allow create: if belongsToCompany(companyCode) &&
+                      request.resource.data.companyCode == companyCode &&
+                      hasValidTimestamp();
+        allow update: if isManagerOrAdmin(companyCode) || (
+                        belongsToCompany(companyCode) &&
+                        resource.data.employeeEmail.lower() == userEmail() &&
+                        resource.data.status == 'PENDIENTE'
+                      );
+        allow delete: if isManagerOrAdmin(companyCode);
+      }
+    }
+  }
+}

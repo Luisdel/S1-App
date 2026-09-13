@@ -13,6 +13,7 @@ import kotlinx.coroutines.launch
 
 @Database(
     entities = [
+        CompanyEnvironment::class,
         Employee::class,
         Shift::class,
         TimeOffRequest::class,
@@ -21,12 +22,13 @@ import kotlinx.coroutines.launch
         NotificationLog::class,
         TimeClockEntry::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
 
+    abstract fun companyDao(): CompanyDao
     abstract fun employeeDao(): EmployeeDao
     abstract fun shiftDao(): ShiftDao
     abstract fun timeOffDao(): TimeOffDao
@@ -68,12 +70,22 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         suspend fun populateInitialData(database: AppDatabase) {
+            val companyDao = database.companyDao()
             val employeeDao = database.employeeDao()
             val shiftDao = database.shiftDao()
             val timeOffDao = database.timeOffDao()
             val taskDao = database.taskDao()
             val performanceDao = database.performanceDao()
             val notificationDao = database.notificationDao()
+
+            // Entorno Empresarial por Defecto
+            val defaultCompany = CompanyEnvironment(
+                code = "S1-CORP",
+                name = "S1 Corporación Tecnológica",
+                adminEmail = "laura.martinez@empresa.com",
+                adminName = "Laura Martínez Gómez"
+            )
+            companyDao.insertCompany(defaultCompany)
 
             val employees = listOf(
                 Employee(
@@ -406,7 +418,7 @@ abstract class AppDatabase : RoomDatabase() {
                     timestamp = System.currentTimeMillis() - 1800000L,
                     formattedTime = "07:31:40",
                     formattedDate = todayStr,
-                    locationTag = "Sótano -2 / Almacén Central (Zona sin red)",
+                    locationTag = "Almacén Logístico (Modo Offline)",
                     syncStatus = SyncStatus.PENDING,
                     syncAttempts = 1,
                     lastSyncAttemptAt = System.currentTimeMillis() - 600000L

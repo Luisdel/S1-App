@@ -1,6 +1,9 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -15,6 +18,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -204,26 +209,57 @@ fun DashboardScreen(
             }
         }
 
-        // Control Horario & Fichaje Digital Offline (WorkManager & Room)
+        // Control Horario & Fichaje Digital (Sincronización Automática Online / Offline)
         item {
-            var selectedLocation by remember { mutableStateOf("Sótano -2 (Almacén Central)") }
+            var selectedLocation by remember { mutableStateOf("Sede Central - Acceso") }
             val locationOptions = remember {
                 listOf(
-                    "Sótano -2 (Almacén Central)",
-                    "Sótano -1 (Archivo Técnico)",
-                    "Planta Baja (Recepción)",
-                    "Acceso Principal",
-                    "En Ruta / Exterior"
+                    "Sede Central - Acceso",
+                    "Almacén Logístico",
+                    "Oficina Técnica",
+                    "Recepción Planta Baja",
+                    "En Ruta / Remoto"
                 )
             }
+
+            // Pulse animation for online/offline indicator
+            val infiniteTransition = rememberInfiniteTransition(label = "pulseTransition")
+            val pulseAlpha by infiniteTransition.animateFloat(
+                initialValue = 0.4f,
+                targetValue = 1.0f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(900, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "pulseAlpha"
+            )
+            val pulseScale by infiniteTransition.animateFloat(
+                initialValue = 0.88f,
+                targetValue = 1.15f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(900, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "pulseScale"
+            )
+
+            // Rotation animation for sync button
+            var isSyncRotating by remember { mutableStateOf(false) }
+            val syncRotation by animateFloatAsState(
+                targetValue = if (isSyncRotating) 360f else 0f,
+                animationSpec = tween(600, easing = FastOutSlowInEasing),
+                finishedListener = { isSyncRotating = false },
+                label = "syncRotation"
+            )
 
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .animateContentSize()
                     .testTag("time_clock_card"),
-                shape = RoundedCornerShape(18.dp),
+                shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
             ) {
                 Column(modifier = Modifier.padding(18.dp)) {
                     // Header with Online / Offline Status
@@ -233,13 +269,21 @@ fun DashboardScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Fingerprint,
-                                contentDescription = null,
-                                tint = PrimaryBlue,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(PrimaryBlue.copy(alpha = 0.12f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Fingerprint,
+                                    contentDescription = null,
+                                    tint = PrimaryBlue,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
                             Column {
                                 Text(
                                     text = "Control Horario y Fichaje",
@@ -247,31 +291,36 @@ fun DashboardScreen(
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = "Registro de jornada con soporte para sótanos sin cobertura",
+                                    text = "Sincronización continua online y registro seguro offline",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
 
-                        // Network Connectivity Pill
+                        // Modern Network Connectivity Pill with glowing pulse
                         Surface(
                             shape = RoundedCornerShape(20.dp),
-                            color = if (isNetworkOnline) EmeraldSuccess.copy(alpha = 0.15f) else AmberWarning.copy(alpha = 0.15f)
+                            color = if (isNetworkOnline) EmeraldSuccess.copy(alpha = 0.12f) else AmberWarning.copy(alpha = 0.14f),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (isNetworkOnline) EmeraldSuccess.copy(alpha = 0.35f) else AmberWarning.copy(alpha = 0.35f)
+                            )
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(7.dp)
+                                        .size(8.dp)
+                                        .scale(pulseScale)
                                         .clip(CircleShape)
-                                        .background(if (isNetworkOnline) EmeraldSuccess else AmberWarning)
+                                        .background((if (isNetworkOnline) EmeraldSuccess else AmberWarning).copy(alpha = pulseAlpha))
                                 )
-                                Spacer(modifier = Modifier.width(5.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = if (isNetworkOnline) "Cloud Online" else "Modo Sótano",
+                                    text = if (isNetworkOnline) "Modo Online" else "Modo Offline",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = if (isNetworkOnline) EmeraldSuccess else AmberWarning
@@ -280,55 +329,69 @@ fun DashboardScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
-                    // WorkManager Queue Info Banner
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                    // Sync queue banner with smooth animation
+                    AnimatedContent(
+                        targetState = pendingClockCount,
+                        transitionSpec = {
+                            fadeIn(animationSpec = tween(220)) togetherWith fadeOut(animationSpec = tween(150))
+                        },
+                        label = "syncBannerAnim"
+                    ) { count ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (count > 0) AmberWarning.copy(alpha = 0.10f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f)
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Icon(
-                                    imageVector = if (pendingClockCount > 0) Icons.Default.CloudQueue else Icons.Default.CloudDone,
-                                    contentDescription = null,
-                                    tint = if (pendingClockCount > 0) AmberWarning else EmeraldSuccess,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = if (pendingClockCount > 0) {
-                                        "$pendingClockCount fichajes en cola local Room (esperando WorkManager)"
-                                    } else {
-                                        "Todos los fichajes sincronizados con el servidor"
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = if (count > 0) Icons.Default.CloudQueue else Icons.Default.CloudDone,
+                                        contentDescription = null,
+                                        tint = if (count > 0) AmberWarning else EmeraldSuccess,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = if (count > 0) {
+                                            "$count fichajes en cola offline (sincronizando al conectar)"
+                                        } else {
+                                            "Todos los fichajes sincronizados con el servidor"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = if (count > 0) FontWeight.SemiBold else FontWeight.Normal,
+                                        color = if (count > 0) AmberWarning else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                IconButton(
+                                    onClick = {
+                                        isSyncRotating = true
+                                        onTriggerSync()
                                     },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            IconButton(
-                                onClick = onTriggerSync,
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Sync,
-                                    contentDescription = "Sincronizar WorkManager",
-                                    tint = PrimaryBlue,
-                                    modifier = Modifier.size(18.dp)
-                                )
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Sync,
+                                        contentDescription = "Sincronizar ahora",
+                                        tint = PrimaryBlue,
+                                        modifier = Modifier
+                                            .size(18.dp)
+                                            .rotate(syncRotation)
+                                    )
+                                }
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
                     // Logged in user work schedule badge
                     if (loggedInEmployee != null) {
@@ -337,11 +400,20 @@ fun DashboardScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text(
-                                text = "Fichando como: ${loggedInEmployee.name}",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = loggedInEmployee.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
                                 color = MaterialTheme.colorScheme.primaryContainer
@@ -351,7 +423,7 @@ fun DashboardScreen(
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                 )
                             }
                         }
@@ -360,7 +432,7 @@ fun DashboardScreen(
 
                         // Location Chips
                         Text(
-                            text = "Ubicación de marcaje:",
+                            text = "Punto de marcaje:",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -381,7 +453,7 @@ fun DashboardScreen(
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        // Clock action buttons
+                        // Clock action buttons with modern ripple and elevation
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -393,18 +465,20 @@ fun DashboardScreen(
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("clock_in_button"),
-                                colors = ButtonDefaults.buttonColors(containerColor = EmeraldSuccess)
+                                colors = ButtonDefaults.buttonColors(containerColor = EmeraldSuccess),
+                                shape = RoundedCornerShape(10.dp)
                             ) {
                                 Icon(Icons.Default.Login, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Entrada")
+                                Text("Entrada", fontWeight = FontWeight.Bold)
                             }
 
                             FilledTonalButton(
                                 onClick = {
                                     onRegisterClock(loggedInEmployee, ClockType.PAUSA_INICIO, selectedLocation)
                                 },
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp)
                             ) {
                                 Icon(Icons.Default.PauseCircle, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
@@ -418,7 +492,8 @@ fun DashboardScreen(
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("clock_out_button"),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = RoseError)
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = RoseError),
+                                shape = RoundedCornerShape(10.dp)
                             ) {
                                 Icon(Icons.Default.Logout, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
@@ -439,7 +514,10 @@ fun DashboardScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(6.dp))
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.animateContentSize()
+                        ) {
                             clockEntries.take(3).forEach { entry ->
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -489,8 +567,8 @@ fun DashboardScreen(
                                             text = when (entry.syncStatus) {
                                                 SyncStatus.SYNCED -> "☁️ Sincronizado"
                                                 SyncStatus.SYNCING -> "🔄 Sincronizando"
-                                                SyncStatus.PENDING -> "⏳ Cola Sótano"
-                                                SyncStatus.FAILED -> "⚠️ Error"
+                                                SyncStatus.PENDING -> "⏳ Pendiente Offline"
+                                                SyncStatus.FAILED -> "⚠️ Reintentar"
                                             },
                                             style = MaterialTheme.typography.labelSmall,
                                             fontWeight = FontWeight.Bold,

@@ -88,7 +88,7 @@ class ReportExporter(private val context: Context) {
             paint.color = Color.WHITE
             paint.textSize = 16f
             paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            canvas.drawText("StaffHub — Informe Ejecutivo de Gestión de Personal", 30f, 32f, paint)
+            canvas.drawText("S1 — Informe Ejecutivo de Gestión de Personal", 30f, 32f, paint)
 
             var y = 80f
 
@@ -196,7 +196,7 @@ class ReportExporter(private val context: Context) {
 
             // Footer
             paint.color = Color.parseColor("#94A3B8")
-            canvas.drawText("StaffHub Enterprise Workforce Management • Documento Confidencial • Generado automáticamente", 30f, 820f, subPaint)
+            canvas.drawText("S1 Enterprise Workforce Management • Documento Confidencial • Generado automáticamente", 30f, 820f, subPaint)
 
             pdfDocument.finishPage(page)
 

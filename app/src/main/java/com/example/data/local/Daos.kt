@@ -5,15 +5,36 @@ import com.example.data.model.*
 import kotlinx.coroutines.flow.Flow
 
 @Dao
+interface CompanyDao {
+    @Query("SELECT * FROM companies ORDER BY name ASC")
+    fun getAllCompanies(): Flow<List<CompanyEnvironment>>
+
+    @Query("SELECT * FROM companies WHERE UPPER(TRIM(code)) = UPPER(TRIM(:code)) LIMIT 1")
+    suspend fun getCompanyByCode(code: String): CompanyEnvironment?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertCompany(company: CompanyEnvironment): Long
+
+    @Query("SELECT COUNT(*) FROM companies")
+    suspend fun getCompanyCount(): Int
+}
+
+@Dao
 interface EmployeeDao {
     @Query("SELECT * FROM employees ORDER BY name ASC")
     fun getAllEmployees(): Flow<List<Employee>>
+
+    @Query("SELECT * FROM employees WHERE UPPER(TRIM(companyCode)) = UPPER(TRIM(:companyCode)) ORDER BY name ASC")
+    fun getEmployeesByCompany(companyCode: String): Flow<List<Employee>>
 
     @Query("SELECT * FROM employees WHERE id = :id")
     suspend fun getEmployeeById(id: Long): Employee?
 
     @Query("SELECT * FROM employees WHERE LOWER(TRIM(email)) = LOWER(TRIM(:email)) LIMIT 1")
     suspend fun getEmployeeByEmail(email: String): Employee?
+
+    @Query("SELECT * FROM employees WHERE UPPER(TRIM(companyCode)) = UPPER(TRIM(:companyCode)) AND LOWER(TRIM(email)) = LOWER(TRIM(:email)) LIMIT 1")
+    suspend fun getEmployeeByCompanyAndEmail(companyCode: String, email: String): Employee?
 
     @Query("SELECT * FROM employees WHERE department = :dept ORDER BY name ASC")
     fun getEmployeesByDepartment(dept: String): Flow<List<Employee>>
@@ -39,6 +60,9 @@ interface EmployeeDao {
     @Query("SELECT COUNT(*) FROM employees WHERE isMasterAdmin = 1")
     suspend fun getMasterAdminCount(): Int
 
+    @Query("SELECT COUNT(*) FROM employees WHERE UPPER(TRIM(companyCode)) = UPPER(TRIM(:companyCode)) AND isMasterAdmin = 1")
+    suspend fun getMasterAdminCountForCompany(companyCode: String): Int
+
     @Query("SELECT * FROM employees WHERE isMasterAdmin = 1 LIMIT 1")
     suspend fun getMasterAdmin(): Employee?
 }
@@ -47,6 +71,9 @@ interface EmployeeDao {
 interface ShiftDao {
     @Query("SELECT * FROM shifts ORDER BY date DESC, startTime ASC")
     fun getAllShifts(): Flow<List<Shift>>
+
+    @Query("SELECT * FROM shifts WHERE UPPER(TRIM(companyCode)) = UPPER(TRIM(:companyCode)) ORDER BY date DESC, startTime ASC")
+    fun getShiftsForCompany(companyCode: String): Flow<List<Shift>>
 
     @Query("SELECT * FROM shifts WHERE date = :date ORDER BY startTime ASC")
     fun getShiftsByDate(date: String): Flow<List<Shift>>
@@ -68,6 +95,9 @@ interface ShiftDao {
 interface TimeOffDao {
     @Query("SELECT * FROM time_off_requests ORDER BY requestedAt DESC")
     fun getAllRequests(): Flow<List<TimeOffRequest>>
+
+    @Query("SELECT * FROM time_off_requests WHERE UPPER(TRIM(companyCode)) = UPPER(TRIM(:companyCode)) ORDER BY requestedAt DESC")
+    fun getRequestsForCompany(companyCode: String): Flow<List<TimeOffRequest>>
 
     @Query("SELECT * FROM time_off_requests WHERE status = 'PENDIENTE' ORDER BY requestedAt DESC")
     fun getPendingRequests(): Flow<List<TimeOffRequest>>
@@ -93,6 +123,9 @@ interface TaskDao {
     @Query("SELECT * FROM daily_tasks ORDER BY date DESC, priority ASC")
     fun getAllTasks(): Flow<List<DailyTask>>
 
+    @Query("SELECT * FROM daily_tasks WHERE UPPER(TRIM(companyCode)) = UPPER(TRIM(:companyCode)) ORDER BY date DESC, priority ASC")
+    fun getTasksForCompany(companyCode: String): Flow<List<DailyTask>>
+
     @Query("SELECT * FROM daily_tasks WHERE date = :date ORDER BY priority ASC")
     fun getTasksByDate(date: String): Flow<List<DailyTask>>
 
@@ -113,6 +146,9 @@ interface TaskDao {
 interface PerformanceDao {
     @Query("SELECT * FROM performance_reviews ORDER BY date DESC")
     fun getAllReviews(): Flow<List<PerformanceReview>>
+
+    @Query("SELECT * FROM performance_reviews WHERE UPPER(TRIM(companyCode)) = UPPER(TRIM(:companyCode)) ORDER BY date DESC")
+    fun getReviewsForCompany(companyCode: String): Flow<List<PerformanceReview>>
 
     @Query("SELECT * FROM performance_reviews WHERE employeeId = :empId ORDER BY date DESC")
     fun getReviewsForEmployee(empId: Long): Flow<List<PerformanceReview>>
@@ -144,20 +180,32 @@ interface TimeClockDao {
     @Query("SELECT * FROM time_clock_entries ORDER BY timestamp DESC")
     fun getAllClockEntries(): Flow<List<TimeClockEntry>>
 
+    @Query("SELECT * FROM time_clock_entries WHERE UPPER(TRIM(companyCode)) = UPPER(TRIM(:companyCode)) ORDER BY timestamp DESC")
+    fun getClockEntriesForCompany(companyCode: String): Flow<List<TimeClockEntry>>
+
     @Query("SELECT * FROM time_clock_entries WHERE employeeId = :empId ORDER BY timestamp DESC")
     fun getClockEntriesForEmployee(empId: Long): Flow<List<TimeClockEntry>>
 
     @Query("SELECT * FROM time_clock_entries WHERE syncStatus = 'PENDING' OR syncStatus = 'FAILED' ORDER BY timestamp ASC")
     suspend fun getPendingClockEntries(): List<TimeClockEntry>
 
+    @Query("SELECT * FROM time_clock_entries WHERE UPPER(TRIM(companyCode)) = UPPER(TRIM(:companyCode)) AND (syncStatus = 'PENDING' OR syncStatus = 'FAILED') ORDER BY timestamp ASC")
+    suspend fun getPendingClockEntriesForCompany(companyCode: String): List<TimeClockEntry>
+
     @Query("SELECT COUNT(*) FROM time_clock_entries WHERE syncStatus = 'PENDING' OR syncStatus = 'FAILED'")
     fun getPendingCountFlow(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM time_clock_entries WHERE UPPER(TRIM(companyCode)) = UPPER(TRIM(:companyCode)) AND (syncStatus = 'PENDING' OR syncStatus = 'FAILED')")
+    fun getPendingCountFlowForCompany(companyCode: String): Flow<Int>
 
     @Query("SELECT COUNT(*) FROM time_clock_entries WHERE syncStatus = 'PENDING' OR syncStatus = 'FAILED'")
     suspend fun getPendingCount(): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertClockEntry(entry: TimeClockEntry): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertClockEntries(entries: List<TimeClockEntry>)
 
     @Update
     suspend fun updateClockEntry(entry: TimeClockEntry)

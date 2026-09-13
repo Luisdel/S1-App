@@ -2,7 +2,7 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// StaffHub Corporate Sapphire & Slate Theme
+// S1 Corporate Sapphire & Slate Theme
 val PrimaryBlue = Color(0xFF0F52BA)
 val PrimaryBlueDark = Color(0xFF1E3A8A)
 val PrimaryBlueLight = Color(0xFFDDE7FF)

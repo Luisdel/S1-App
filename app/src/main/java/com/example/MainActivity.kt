@@ -7,6 +7,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -68,6 +70,9 @@ fun MainApp(viewModel: StaffViewModel) {
 
     // State collections
     val loggedInEmployee by viewModel.loggedInEmployee.collectAsStateWithLifecycle()
+    val companies by viewModel.companies.collectAsStateWithLifecycle()
+    val currentCompanyCode by viewModel.currentCompanyCode.collectAsStateWithLifecycle()
+    val currentCompany by viewModel.currentCompany.collectAsStateWithLifecycle()
     val currentRole by viewModel.currentUserRole.collectAsStateWithLifecycle()
     val currentUserName by viewModel.currentUserName.collectAsStateWithLifecycle()
     val permissions by viewModel.currentPermissions.collectAsStateWithLifecycle()
@@ -108,15 +113,28 @@ fun MainApp(viewModel: StaffViewModel) {
 
     if (loggedInEmployee == null) {
         LoginScreen(
+            companies = companies,
+            currentCompanyCode = currentCompanyCode,
             employees = employees,
-            onLoginWithCredentials = { email, password, onResult ->
-                viewModel.loginWithCredentials(email, password, onResult)
+            onSelectCompany = { code ->
+                viewModel.selectCompany(code)
             },
-            onRegister = { name, email, password, phone, onResult ->
-                viewModel.registerAccount(name, email, password, phone, onResult)
+            onLoginWithCredentials = { companyCode, email, password, onResult ->
+                viewModel.loginWithCredentials(companyCode, email, password, onResult)
             },
-            onGoogleSignIn = { email, name, onResult ->
-                viewModel.loginWithGoogle(email, name, onResult)
+            onCreateCompany = { companyName, companyCode, adminName, adminEmail, adminPassword, adminPhone, onResult ->
+                viewModel.registerCompanyAndAdmin(
+                    companyName = companyName,
+                    companyCode = companyCode,
+                    adminName = adminName,
+                    adminEmail = adminEmail,
+                    adminPassword = adminPassword,
+                    adminPhone = adminPhone,
+                    onResult = onResult
+                )
+            },
+            onGoogleSignIn = { email, name, companyCode, onResult ->
+                viewModel.loginWithGoogle(email, name, companyCode, onResult)
             },
             onQuickLogin = { emp ->
                 viewModel.loginWithEmployee(emp)
@@ -218,115 +236,123 @@ fun MainApp(viewModel: StaffViewModel) {
                     }
                 }
 
-                // Main screen view content
+                // Main screen view content with smooth animated transitions
                 Box(modifier = Modifier.weight(1f)) {
-                    when (currentDestination) {
-                        NavigationDestination.DASHBOARD -> {
-                            DashboardScreen(
-                                kpis = kpis,
-                                employees = employees,
-                                shifts = shifts,
-                                pendingRequests = timeOffRequests.filter { it.status == RequestStatus.PENDIENTE },
-                                canApproveTimeOff = permissions.canApproveTimeOff,
-                                loggedInEmployee = loggedInEmployee,
-                                clockEntries = clockEntries,
-                                pendingClockCount = pendingClockCount,
-                                isNetworkOnline = isNetworkAvailable,
-                                onRegisterClock = { emp, clockType, loc -> viewModel.registerClockEntry(emp, clockType, loc) },
-                                onTriggerSync = { viewModel.triggerWorkManagerSync() },
-                                onApproveRequest = { id -> viewModel.reviewTimeOffRequest(id, RequestStatus.APROBADO) },
-                                onRejectRequest = { id -> viewModel.reviewTimeOffRequest(id, RequestStatus.RECHAZADO) },
-                                onNavigateToPersonnel = { currentDestination = NavigationDestination.PERSONNEL },
-                                onNavigateToShifts = { currentDestination = NavigationDestination.SHIFTS },
-                                onNavigateToTimeOff = { currentDestination = NavigationDestination.TIMEOFF }
-                            )
-                        }
-                        NavigationDestination.PERSONNEL -> {
-                            PersonnelScreen(
-                                employees = filteredEmployees,
-                                canManageEmployees = permissions.canManageEmployees,
-                                selectedDepartment = selectedDept,
-                                selectedProject = selectedProj,
-                                selectedArea = selectedArea,
-                                searchQuery = searchQuery,
-                                onDepartmentSelected = { viewModel.setDepartmentFilter(it) },
-                                onProjectSelected = { viewModel.setProjectFilter(it) },
-                                onAreaSelected = { viewModel.setAreaFilter(it) },
-                                onSearchQueryChanged = { viewModel.setSearchQuery(it) },
-                                onAddEmployee = { viewModel.addEmployee(it) },
-                                onUpdateEmployee = { viewModel.updateEmployee(it) },
-                                onDeleteEmployee = { viewModel.deleteEmployee(it) }
-                            )
-                        }
-                        NavigationDestination.SHIFTS -> {
-                            ShiftsScreen(
-                                shifts = shifts,
-                                employees = employees,
-                                tasks = tasks,
-                                loggedInEmployee = loggedInEmployee,
-                                canAssignShifts = permissions.canAssignShifts,
-                                onAddShift = { viewModel.addShift(it) },
-                                onDeleteShift = { viewModel.deleteShift(it) },
-                                onToggleTaskStatus = { viewModel.toggleTaskStatus(it) }
-                            )
-                        }
-                        NavigationDestination.TIMEOFF -> {
-                            TimeOffScreen(
-                                requests = timeOffRequests,
-                                employees = employees,
-                                loggedInEmployee = loggedInEmployee,
-                                canApprove = permissions.canApproveTimeOff,
-                                onApprove = { id -> viewModel.reviewTimeOffRequest(id, RequestStatus.APROBADO) },
-                                onReject = { id -> viewModel.reviewTimeOffRequest(id, RequestStatus.RECHAZADO) },
-                                onRequestTimeOff = { viewModel.requestTimeOff(it) }
-                            )
-                        }
-                        NavigationDestination.TASKS -> {
-                            TasksScreen(
-                                tasks = tasks,
-                                employees = employees,
-                                loggedInEmployee = loggedInEmployee,
-                                canAssignTasks = permissions.canAssignTasks,
-                                onToggleTaskStatus = { viewModel.toggleTaskStatus(it) },
-                                onAddTask = { viewModel.addTask(it) },
-                                onDeleteTask = { viewModel.deleteTask(it) }
-                            )
-                        }
-                        NavigationDestination.PERFORMANCE -> {
-                            PerformanceScreen(
-                                reviews = reviews,
-                                employees = employees,
-                                canReview = permissions.canReviewPerformance,
-                                onAddReview = { viewModel.addPerformanceReview(it) },
-                                onDeleteReview = { viewModel.deleteReview(it) }
-                            )
-                        }
-                        NavigationDestination.REPORTS -> {
-                            ReportsScreen(
-                                employees = employees,
-                                shifts = shifts,
-                                timeOffs = timeOffRequests,
-                                tasks = tasks,
-                                selectedDepartment = selectedDept,
-                                onDepartmentSelected = { viewModel.setDepartmentFilter(it) },
-                                onExportPdf = { onReady -> viewModel.exportPdfReport(onReady) },
-                                onExportExcel = { onReady -> viewModel.exportExcelCsvReport(onReady) },
-                                onShareFile = { uri, mime, title -> viewModel.reportExporter.shareFile(uri, mime, title) }
-                            )
-                        }
-                        NavigationDestination.ADMIN -> {
-                            AdminScreen(
-                                currentRole = currentRole,
-                                currentUserName = currentUserName,
-                                adminPermissions = adminPermissions,
-                                managerPermissions = managerPermissions,
-                                employeePermissions = employeePermissions,
-                                integrationsConfig = integrationsConfig,
-                                onRoleChange = { viewModel.setCurrentUserRole(it) },
-                                onUpdateIntegrations = { viewModel.updateIntegrationsConfig(it) },
-                                onTestSlack = { viewModel.testSlackNotification() },
-                                onTestEmail = { viewModel.testEmailNotification() }
-                            )
+                    AnimatedContent(
+                        targetState = currentDestination,
+                        transitionSpec = {
+                            fadeIn(animationSpec = tween(220)) togetherWith fadeOut(animationSpec = tween(180))
+                        },
+                        label = "screen_transition"
+                    ) { targetScreen ->
+                        when (targetScreen) {
+                            NavigationDestination.DASHBOARD -> {
+                                DashboardScreen(
+                                    kpis = kpis,
+                                    employees = employees,
+                                    shifts = shifts,
+                                    pendingRequests = timeOffRequests.filter { it.status == RequestStatus.PENDIENTE },
+                                    canApproveTimeOff = permissions.canApproveTimeOff,
+                                    loggedInEmployee = loggedInEmployee,
+                                    clockEntries = clockEntries,
+                                    pendingClockCount = pendingClockCount,
+                                    isNetworkOnline = isNetworkAvailable,
+                                    onRegisterClock = { emp, clockType, loc -> viewModel.registerClockEntry(emp, clockType, loc) },
+                                    onTriggerSync = { viewModel.triggerWorkManagerSync() },
+                                    onApproveRequest = { id -> viewModel.reviewTimeOffRequest(id, RequestStatus.APROBADO) },
+                                    onRejectRequest = { id -> viewModel.reviewTimeOffRequest(id, RequestStatus.RECHAZADO) },
+                                    onNavigateToPersonnel = { currentDestination = NavigationDestination.PERSONNEL },
+                                    onNavigateToShifts = { currentDestination = NavigationDestination.SHIFTS },
+                                    onNavigateToTimeOff = { currentDestination = NavigationDestination.TIMEOFF }
+                                )
+                            }
+                            NavigationDestination.PERSONNEL -> {
+                                PersonnelScreen(
+                                    employees = filteredEmployees,
+                                    canManageEmployees = permissions.canManageEmployees,
+                                    selectedDepartment = selectedDept,
+                                    selectedProject = selectedProj,
+                                    selectedArea = selectedArea,
+                                    searchQuery = searchQuery,
+                                    onDepartmentSelected = { viewModel.setDepartmentFilter(it) },
+                                    onProjectSelected = { viewModel.setProjectFilter(it) },
+                                    onAreaSelected = { viewModel.setAreaFilter(it) },
+                                    onSearchQueryChanged = { viewModel.setSearchQuery(it) },
+                                    onAddEmployee = { viewModel.addEmployee(it) },
+                                    onUpdateEmployee = { viewModel.updateEmployee(it) },
+                                    onDeleteEmployee = { viewModel.deleteEmployee(it) }
+                                )
+                            }
+                            NavigationDestination.SHIFTS -> {
+                                ShiftsScreen(
+                                    shifts = shifts,
+                                    employees = employees,
+                                    tasks = tasks,
+                                    loggedInEmployee = loggedInEmployee,
+                                    canAssignShifts = permissions.canAssignShifts,
+                                    onAddShift = { viewModel.addShift(it) },
+                                    onDeleteShift = { viewModel.deleteShift(it) },
+                                    onToggleTaskStatus = { viewModel.toggleTaskStatus(it) }
+                                )
+                            }
+                            NavigationDestination.TIMEOFF -> {
+                                TimeOffScreen(
+                                    requests = timeOffRequests,
+                                    employees = employees,
+                                    loggedInEmployee = loggedInEmployee,
+                                    canApprove = permissions.canApproveTimeOff,
+                                    onApprove = { id -> viewModel.reviewTimeOffRequest(id, RequestStatus.APROBADO) },
+                                    onReject = { id -> viewModel.reviewTimeOffRequest(id, RequestStatus.RECHAZADO) },
+                                    onRequestTimeOff = { viewModel.requestTimeOff(it) }
+                                )
+                            }
+                            NavigationDestination.TASKS -> {
+                                TasksScreen(
+                                    tasks = tasks,
+                                    employees = employees,
+                                    loggedInEmployee = loggedInEmployee,
+                                    canAssignTasks = permissions.canAssignTasks,
+                                    onToggleTaskStatus = { viewModel.toggleTaskStatus(it) },
+                                    onAddTask = { viewModel.addTask(it) },
+                                    onDeleteTask = { viewModel.deleteTask(it) }
+                                )
+                            }
+                            NavigationDestination.PERFORMANCE -> {
+                                PerformanceScreen(
+                                    reviews = reviews,
+                                    employees = employees,
+                                    canReview = permissions.canReviewPerformance,
+                                    onAddReview = { viewModel.addPerformanceReview(it) },
+                                    onDeleteReview = { viewModel.deleteReview(it) }
+                                )
+                            }
+                            NavigationDestination.REPORTS -> {
+                                ReportsScreen(
+                                    employees = employees,
+                                    shifts = shifts,
+                                    timeOffs = timeOffRequests,
+                                    tasks = tasks,
+                                    selectedDepartment = selectedDept,
+                                    onDepartmentSelected = { viewModel.setDepartmentFilter(it) },
+                                    onExportPdf = { onReady -> viewModel.exportPdfReport(onReady) },
+                                    onExportExcel = { onReady -> viewModel.exportExcelCsvReport(onReady) },
+                                    onShareFile = { uri, mime, title -> viewModel.reportExporter.shareFile(uri, mime, title) }
+                                )
+                            }
+                            NavigationDestination.ADMIN -> {
+                                AdminScreen(
+                                    currentRole = currentRole,
+                                    currentUserName = currentUserName,
+                                    adminPermissions = adminPermissions,
+                                    managerPermissions = managerPermissions,
+                                    employeePermissions = employeePermissions,
+                                    integrationsConfig = integrationsConfig,
+                                    onRoleChange = { viewModel.setCurrentUserRole(it) },
+                                    onUpdateIntegrations = { viewModel.updateIntegrationsConfig(it) },
+                                    onTestSlack = { viewModel.testSlackNotification() },
+                                    onTestEmail = { viewModel.testEmailNotification() }
+                                )
+                            }
                         }
                     }
                 }

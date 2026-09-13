@@ -26,7 +26,9 @@ class GreetingScreenshotTest {
       MyApplicationTheme {
         LoginScreen(
           employees = emptyList(),
-          onLogin = { _, _, _ -> },
+          onLoginWithCredentials = { _, _, onResult -> onResult(true, "") },
+          onRegister = { _, _, _, _, onResult -> onResult(true, "") },
+          onGoogleSignIn = { _, _, onResult -> onResult(true, "") },
           onQuickLogin = { }
         )
       }

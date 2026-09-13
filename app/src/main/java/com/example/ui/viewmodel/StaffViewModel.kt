@@ -43,30 +43,55 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
     val integrationService = IntegrationService(application)
     val reportExporter = ReportExporter(application)
 
-    // Raw flows from Room
-    val employees: StateFlow<List<Employee>> = repository.employees
+    // Companies & Multi-Tenant Scoping
+    val companies: StateFlow<List<CompanyEnvironment>> = repository.companies
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val shifts: StateFlow<List<Shift>> = repository.shifts
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    private val _currentCompanyCode = MutableStateFlow("S1-CORP")
+    val currentCompanyCode: StateFlow<String> = _currentCompanyCode.asStateFlow()
 
-    val timeOffRequests: StateFlow<List<TimeOffRequest>> = repository.timeOffRequests
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val currentCompany: StateFlow<CompanyEnvironment?> = combine(
+        companies,
+        _currentCompanyCode
+    ) { list, code ->
+        list.find { it.code.equals(code, ignoreCase = true) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    val tasks: StateFlow<List<DailyTask>> = repository.tasks
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    fun selectCompany(code: String) {
+        _currentCompanyCode.value = code.trim().uppercase()
+    }
 
-    val reviews: StateFlow<List<PerformanceReview>> = repository.reviews
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    // Scoped flows from Room by currentCompanyCode
+    val employees: StateFlow<List<Employee>> = combine(repository.employees, _currentCompanyCode) { list, code ->
+        list.filter { it.companyCode.equals(code, ignoreCase = true) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val shifts: StateFlow<List<Shift>> = combine(repository.shifts, _currentCompanyCode) { list, code ->
+        list.filter { it.companyCode.equals(code, ignoreCase = true) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val timeOffRequests: StateFlow<List<TimeOffRequest>> = combine(repository.timeOffRequests, _currentCompanyCode) { list, code ->
+        list.filter { it.companyCode.equals(code, ignoreCase = true) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val tasks: StateFlow<List<DailyTask>> = combine(repository.tasks, _currentCompanyCode) { list, code ->
+        list.filter { it.companyCode.equals(code, ignoreCase = true) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val reviews: StateFlow<List<PerformanceReview>> = combine(repository.reviews, _currentCompanyCode) { list, code ->
+        list.filter { it.companyCode.equals(code, ignoreCase = true) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val notifications: StateFlow<List<NotificationLog>> = repository.notifications
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val clockEntries: StateFlow<List<TimeClockEntry>> = repository.clockEntries
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val clockEntries: StateFlow<List<TimeClockEntry>> = combine(repository.clockEntries, _currentCompanyCode) { list, code ->
+        list.filter { it.companyCode.equals(code, ignoreCase = true) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val pendingClockCount: StateFlow<Int> = repository.pendingClockCount
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+    val pendingClockCount: StateFlow<Int> = clockEntries.map { list ->
+        list.count { it.syncStatus == SyncStatus.PENDING || it.syncStatus == SyncStatus.FAILED }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     private val _isNetworkAvailable = MutableStateFlow(integrationService.isNetworkAvailable())
     val isNetworkAvailable: StateFlow<Boolean> = _isNetworkAvailable.asStateFlow()
@@ -235,15 +260,21 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
         switchRoleMode(role)
     }
 
-    // Iniciar sesión con correo y contraseña
+    // Iniciar sesión con correo y contraseña en un entorno empresarial
     fun loginWithCredentials(
+        companyCode: String,
         email: String,
         password: String,
         onResult: (success: Boolean, message: String) -> Unit
     ) {
+        val cleanCode = companyCode.trim().uppercase()
         val cleanEmail = email.trim().lowercase()
         val cleanPassword = password.trim()
 
+        if (cleanCode.isBlank()) {
+            onResult(false, "Introduce el código de empresa (ej: S1-CORP)")
+            return
+        }
         if (cleanEmail.isBlank()) {
             onResult(false, "Introduce tu correo electrónico")
             return
@@ -254,45 +285,79 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         viewModelScope.launch(Dispatchers.IO) {
-            val existing = repository.getEmployeeByEmail(cleanEmail)
-            if (existing != null) {
-                // Verificar contraseña
-                val validPass = existing.passwordHash.isBlank() || existing.passwordHash == cleanPassword
-                if (validPass) {
-                    _loggedInEmployee.value = existing
-                    _currentUserRole.value = existing.systemRole
-                    val roleDesc = if (existing.isMasterAdmin) "Administrador Maestro 👑" else existing.systemRole.label
-                    _currentUserName.value = "${existing.name} ($roleDesc)"
-                    _statusMessage.value = "Sesión iniciada como ${existing.name} ($roleDesc)"
-                    onResult(true, "¡Bienvenido de nuevo, ${existing.name}! Acceso verificado como $roleDesc.")
-                } else {
-                    onResult(false, "Contraseña incorrecta para $cleanEmail. Por favor verifica tus credenciales.")
-                }
-            } else {
-                onResult(false, "No se encontró ningún usuario con el correo $cleanEmail. Puedes crear tu cuenta en la pestaña 'Registrarse'.")
+            val company = repository.getCompanyByCode(cleanCode)
+            if (company == null) {
+                onResult(false, "No se encontró la empresa con código '$cleanCode'. Verifica el código con tu Administrador.")
+                return@launch
             }
+
+            val existing = repository.getEmployeeByCompanyAndEmail(cleanCode, cleanEmail)
+            if (existing == null) {
+                onResult(false, "No hay ningún empleado registrado con el correo $cleanEmail en la empresa '$cleanCode'. Tu Administrador debe darte de alta previamente.")
+                return@launch
+            }
+
+            val validPass = existing.passwordHash.isBlank() || existing.passwordHash == cleanPassword
+            if (!validPass) {
+                onResult(false, "Contraseña incorrecta. Consulta con el Administrador de tu empresa para verificar tus credenciales.")
+                return@launch
+            }
+
+            // Si Firebase Auth está habilitado y hay red, autenticar en Firebase
+            if (integrationService.isFirebaseConfigured() && integrationService.isNetworkAvailable()) {
+                integrationService.signInWithFirebaseAuth(cleanEmail, cleanPassword)
+            }
+
+            _currentCompanyCode.value = cleanCode
+            _loggedInEmployee.value = existing
+            _currentUserRole.value = existing.systemRole
+            val roleDesc = if (existing.isMasterAdmin) "Administrador Maestro 👑" else existing.systemRole.label
+            _currentUserName.value = "${existing.name} ($roleDesc)"
+            _statusMessage.value = "Sesión iniciada en ${company.name} como ${existing.name} ($roleDesc)"
+            onResult(true, "¡Bienvenido de nuevo, ${existing.name}! Acceso verificado en ${company.name} ($roleDesc).")
         }
     }
 
-    // Registro de nuevo usuario (El primero será Administrador Maestro, los siguientes Empleados)
-    fun registerAccount(
-        name: String,
+    // Sobrecarga compatible
+    fun loginWithCredentials(
         email: String,
         password: String,
-        phone: String = "",
         onResult: (success: Boolean, message: String) -> Unit
     ) {
-        val cleanEmail = email.trim().lowercase()
-        val cleanName = name.trim()
-        val cleanPass = password.trim()
-        val cleanPhone = phone.trim()
+        loginWithCredentials(_currentCompanyCode.value, email, password, onResult)
+    }
+
+    // Crear un nuevo Entorno Empresarial con su Administrador Maestro
+    fun registerCompanyAndAdmin(
+        companyName: String,
+        companyCode: String,
+        adminName: String,
+        adminEmail: String,
+        adminPassword: String,
+        adminPhone: String = "",
+        onResult: (success: Boolean, message: String) -> Unit
+    ) {
+        val cleanName = companyName.trim()
+        val cleanCode = companyCode.trim().uppercase()
+        val cleanAdminName = adminName.trim()
+        val cleanEmail = adminEmail.trim().lowercase()
+        val cleanPass = adminPassword.trim()
+        val cleanPhone = adminPhone.trim()
 
         if (cleanName.isBlank()) {
-            onResult(false, "Por favor introduce tu nombre completo")
+            onResult(false, "Por favor introduce el nombre comercial de la empresa")
+            return
+        }
+        if (cleanCode.length < 3) {
+            onResult(false, "El código de empresa debe tener al menos 3 caracteres (ej: S1-CORP, ACME)")
+            return
+        }
+        if (cleanAdminName.isBlank()) {
+            onResult(false, "Introduce el nombre completo del Administrador")
             return
         }
         if (cleanEmail.isBlank() || !cleanEmail.contains("@")) {
-            onResult(false, "Introduce un correo electrónico civil válido")
+            onResult(false, "Introduce un correo electrónico civil o corporativo válido")
             return
         }
         if (cleanPass.length < 4) {
@@ -301,88 +366,74 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         viewModelScope.launch(Dispatchers.IO) {
-            val existing = repository.getEmployeeByEmail(cleanEmail)
-            if (existing != null) {
-                // Si ya existe pero no tenía contraseña o el admin lo creó previamente
-                if (existing.passwordHash.isBlank() || existing.passwordHash == "123456") {
-                    val updated = existing.copy(
-                        name = if (cleanName.isNotBlank()) cleanName else existing.name,
-                        phone = if (cleanPhone.isNotBlank()) cleanPhone else existing.phone,
-                        passwordHash = cleanPass
-                    )
-                    repository.updateEmployee(updated)
-                    _loggedInEmployee.value = updated
-                    _currentUserRole.value = updated.systemRole
-                    _currentUserName.value = "${updated.name} (${updated.systemRole.label})"
-                    _statusMessage.value = "Contraseña configurada y sesión iniciada para ${updated.name}"
-                    onResult(true, "Tu cuenta asignada ha sido activada con éxito con tu nueva contraseña.")
-                    return@launch
-                } else {
-                    onResult(false, "Ya existe una cuenta registrada con $cleanEmail. Por favor inicia sesión.")
-                    return@launch
-                }
+            val existingCompany = repository.getCompanyByCode(cleanCode)
+            if (existingCompany != null) {
+                onResult(false, "El código de empresa '$cleanCode' ya existe. Si eres el administrador, inicia sesión.")
+                return@launch
             }
 
-            // Comprobar si ya existe algún Administrador Maestro
-            val masterAdminCount = repository.getMasterAdminCount()
-            val isFirstUserAndMaster = masterAdminCount == 0
-
-            val newRole = if (isFirstUserAndMaster) SystemRole.ADMIN else SystemRole.EMPLOYEE
-            val newTitle = if (isFirstUserAndMaster) "Administrador Maestro" else "Empleado"
-            val newDept = if (isFirstUserAndMaster) "Dirección General" else "Operaciones"
-
-            val newEmp = Employee(
+            val company = CompanyEnvironment(
+                code = cleanCode,
                 name = cleanName,
+                adminEmail = cleanEmail,
+                adminName = cleanAdminName
+            )
+            repository.insertCompany(company)
+            integrationService.syncCompanyToCloud(company)
+
+            val admin = Employee(
+                companyCode = cleanCode,
+                name = cleanAdminName,
                 email = cleanEmail,
                 phone = cleanPhone,
                 passwordHash = cleanPass,
-                isMasterAdmin = isFirstUserAndMaster,
+                isMasterAdmin = true,
                 authProvider = "LOCAL",
-                jobTitle = newTitle,
-                department = newDept,
+                jobTitle = "Director / Administrador",
+                department = "Dirección General",
                 project = "General",
-                functionalArea = if (isFirstUserAndMaster) "Dirección" else "Operaciones",
-                systemRole = newRole,
+                functionalArea = "Dirección",
+                systemRole = SystemRole.ADMIN,
                 status = EmployeeStatus.ACTIVO,
-                avatarColorHex = if (isFirstUserAndMaster) 0xFF2563EB else 0xFF0284C7,
+                avatarColorHex = 0xFF2563EB,
                 hireDate = LocalDate.now().toString(),
-                notes = if (isFirstUserAndMaster) "Primer usuario: Administrador Maestro de la organización" else "Registrado con cuenta de empleado"
+                notes = "Administrador fundador de $cleanName"
             )
+            val adminId = repository.insertEmployee(admin)
+            val createdAdmin = admin.copy(id = adminId)
 
-            val id = repository.insertEmployee(newEmp)
-            val created = newEmp.copy(id = id)
-            _loggedInEmployee.value = created
-            _currentUserRole.value = created.systemRole
-            val roleDesc = if (created.isMasterAdmin) "Administrador Maestro 👑" else created.systemRole.label
-            _currentUserName.value = "${created.name} ($roleDesc)"
+            integrationService.createFirebaseAccount(cleanEmail, cleanPass)
+            integrationService.syncEmployeeToCloud(createdAdmin)
+
+            _currentCompanyCode.value = cleanCode
+            _loggedInEmployee.value = createdAdmin
+            _currentUserRole.value = SystemRole.ADMIN
+            _currentUserName.value = "${createdAdmin.name} (Administrador Maestro 👑)"
 
             repository.addNotification(
                 NotificationLog(
-                    title = if (isFirstUserAndMaster) "Administrador Maestro creado" else "Nuevo empleado registrado",
-                    message = "${created.name} registrado con rol $roleDesc ($cleanEmail).",
+                    title = "Entorno Empresarial Creado",
+                    message = "Empresa $cleanName registrada con código $cleanCode. Como administrador, da de alta a tus empleados en el módulo Personal.",
                     channel = "SISTEMA"
                 )
             )
 
-            val welcomeMsg = if (isFirstUserAndMaster) {
-                "¡Bienvenido! Has sido creado como Administrador Maestro de la organización (cuenta protegida)."
-            } else {
-                "¡Cuenta creada con éxito con rol Empleado! Solo el administrador puede asignarte permisos adicionales."
-            }
-
+            val welcomeMsg = "¡Entorno empresarial '$cleanName' ($cleanCode) creado con éxito! Como Administrador Maestro, ahora puedes dar de alta a tus empleados desde el módulo Personal y proporcionarles sus claves de acceso."
             _statusMessage.value = welcomeMsg
             onResult(true, welcomeMsg)
         }
     }
 
-    // Inicio / Registro rápido con Cuenta de Google
+    // Inicio con Cuenta de Google (Validando asignación previa por el Administrador)
     fun loginWithGoogle(
         googleEmail: String,
         googleName: String,
+        companyCode: String = _currentCompanyCode.value,
         onResult: (success: Boolean, message: String) -> Unit
     ) {
         val cleanEmail = googleEmail.trim().lowercase()
         val cleanName = googleName.trim()
+        val cleanCode = companyCode.trim().uppercase()
 
         if (cleanEmail.isBlank()) {
             onResult(false, "Correo de Google no válido")
@@ -390,56 +441,28 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         viewModelScope.launch(Dispatchers.IO) {
-            val existing = repository.getEmployeeByEmail(cleanEmail)
+            val company = repository.getCompanyByCode(cleanCode)
+            if (company == null) {
+                onResult(false, "No se encontró la empresa con código '$cleanCode'.")
+                return@launch
+            }
+
+            val existing = repository.getEmployeeByCompanyAndEmail(cleanCode, cleanEmail)
             if (existing != null) {
                 val updated = if (existing.authProvider != "GOOGLE") {
                     val m = existing.copy(authProvider = "GOOGLE")
                     repository.updateEmployee(m)
                     m
                 } else existing
+                _currentCompanyCode.value = cleanCode
                 _loggedInEmployee.value = updated
                 _currentUserRole.value = updated.systemRole
                 val roleDesc = if (updated.isMasterAdmin) "Administrador Maestro 👑" else updated.systemRole.label
                 _currentUserName.value = "${updated.name} ($roleDesc)"
-                _statusMessage.value = "Sesión iniciada con Google: ${updated.name}"
-                onResult(true, "Acceso con Google completado. ¡Bienvenido, ${updated.name}!")
+                _statusMessage.value = "Sesión iniciada con Google: ${updated.name} en ${company.name}"
+                onResult(true, "Acceso con Google verificado en ${company.name}. ¡Bienvenido/a, ${updated.name}!")
             } else {
-                val masterAdminCount = repository.getMasterAdminCount()
-                val isFirstUserAndMaster = masterAdminCount == 0
-
-                val newRole = if (isFirstUserAndMaster) SystemRole.ADMIN else SystemRole.EMPLOYEE
-                val newTitle = if (isFirstUserAndMaster) "Administrador Maestro" else "Empleado"
-
-                val newEmp = Employee(
-                    name = cleanName,
-                    email = cleanEmail,
-                    passwordHash = "google_auth",
-                    isMasterAdmin = isFirstUserAndMaster,
-                    authProvider = "GOOGLE",
-                    jobTitle = newTitle,
-                    department = if (isFirstUserAndMaster) "Dirección General" else "Operaciones",
-                    project = "General",
-                    functionalArea = if (isFirstUserAndMaster) "Dirección" else "Operaciones",
-                    systemRole = newRole,
-                    status = EmployeeStatus.ACTIVO,
-                    avatarColorHex = if (isFirstUserAndMaster) 0xFF2563EB else 0xFF0D9488,
-                    hireDate = LocalDate.now().toString(),
-                    notes = "Autenticado con Google Sign-In"
-                )
-                val id = repository.insertEmployee(newEmp)
-                val created = newEmp.copy(id = id)
-                _loggedInEmployee.value = created
-                _currentUserRole.value = created.systemRole
-                val roleDesc = if (created.isMasterAdmin) "Administrador Maestro 👑" else created.systemRole.label
-                _currentUserName.value = "${created.name} ($roleDesc)"
-
-                val welcomeMsg = if (isFirstUserAndMaster) {
-                    "Cuenta de Google vinculada como Administrador Maestro de la organización."
-                } else {
-                    "Cuenta de Google vinculada con rol Empleado."
-                }
-                _statusMessage.value = welcomeMsg
-                onResult(true, welcomeMsg)
+                onResult(false, "No tienes cuenta asignada en la empresa ${company.name} ($cleanCode). Contacta con el Administrador para que cree tu perfil de empleado.")
             }
         }
     }
@@ -451,7 +474,7 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
         phone: String = "",
         onResult: (success: Boolean, message: String) -> Unit = { _, _ -> }
     ) {
-        registerAccount(name, email, "123456", phone, onResult)
+        loginWithCredentials(_currentCompanyCode.value, email, "123456", onResult)
     }
 
     fun loginWithEmployee(employee: Employee) {
@@ -483,21 +506,27 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
     // Employee Actions
     fun addEmployee(employee: Employee) {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.insertEmployee(employee)
+            val scopedEmp = employee.copy(companyCode = _currentCompanyCode.value)
+            val newId = repository.insertEmployee(scopedEmp)
+            val savedEmp = scopedEmp.copy(id = newId)
+            integrationService.syncEmployeeToCloud(savedEmp)
+
             repository.addNotification(
                 NotificationLog(
-                    title = "Nuevo empleado añadido",
-                    message = "${employee.name} registrado en ${employee.department}.",
+                    title = "Nuevo empleado asignado",
+                    message = "${savedEmp.name} registrado en ${savedEmp.department} para la empresa ${_currentCompanyCode.value}.",
                     channel = "SISTEMA"
                 )
             )
-            _statusMessage.value = "Empleado ${employee.name} registrado correctamente"
+            _statusMessage.value = "Empleado ${savedEmp.name} registrado correctamente con credenciales asignadas"
         }
     }
 
     fun updateEmployee(employee: Employee) {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.updateEmployee(employee)
+            val scopedEmp = employee.copy(companyCode = _currentCompanyCode.value)
+            repository.updateEmployee(scopedEmp)
+            integrationService.syncEmployeeToCloud(scopedEmp)
             _statusMessage.value = "Datos de ${employee.name} actualizados"
         }
     }
@@ -512,7 +541,7 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
             repository.addNotification(
                 NotificationLog(
                     title = "Empleado retirado",
-                    message = "${employee.name} ha sido dado de baja del sistema.",
+                    message = "${employee.name} ha sido dado de baja de la empresa ${_currentCompanyCode.value}.",
                     channel = "SISTEMA"
                 )
             )
@@ -523,7 +552,8 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
     // Shift Actions
     fun addShift(shift: Shift) {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.insertShift(shift)
+            val scopedShift = shift.copy(companyCode = _currentCompanyCode.value)
+            repository.insertShift(scopedShift)
             val msg = "Turno ${shift.shiftType.label} asignado a ${shift.employeeName} para el ${shift.date} (${shift.startTime}-${shift.endTime})."
             repository.addNotification(
                 NotificationLog(
@@ -555,7 +585,8 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
     // Time-off Actions
     fun requestTimeOff(request: TimeOffRequest) {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.insertTimeOff(request)
+            val scopedRequest = request.copy(companyCode = _currentCompanyCode.value)
+            repository.insertTimeOff(scopedRequest)
             val dayTypeLabel = if (request.customDayType.isNotBlank()) request.customDayType else request.type.label
             val msg = "${request.employeeName} solicitó ${request.daysCount} días de $dayTypeLabel (${request.startDate} a ${request.endDate}). Motivo: ${request.reason}"
             repository.addNotification(
@@ -628,7 +659,8 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
     // Daily Tasks
     fun addTask(task: DailyTask) {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.insertTask(task)
+            val scopedTask = task.copy(companyCode = _currentCompanyCode.value)
+            repository.insertTask(scopedTask)
             _statusMessage.value = "Tarea asignada a ${task.employeeName}"
         }
     }
@@ -654,7 +686,8 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
     // Performance Reviews
     fun addPerformanceReview(review: PerformanceReview) {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.insertReview(review)
+            val scopedReview = review.copy(companyCode = _currentCompanyCode.value)
+            repository.insertReview(scopedReview)
             repository.addNotification(
                 NotificationLog(
                     title = "Evaluación de desempeño registrada",
@@ -730,8 +763,8 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
             val result = integrationService.sendSlackNotification(
                 webhookUrl = config.slackWebhookUrl,
                 channel = config.slackChannel,
-                title = "🧪 Notificación de Prueba — StaffHub",
-                message = "La integración de StaffHub con Slack está funcionando correctamente en el canal ${config.slackChannel}."
+                title = "🧪 Notificación de Prueba — S1",
+                message = "La integración de S1 con Slack está funcionando correctamente en el canal ${config.slackChannel}."
             )
             result.onSuccess {
                 repository.addNotification(
@@ -750,11 +783,11 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
 
     fun testEmailNotification() {
         val config = _integrationsConfig.value
-        val subject = "[StaffHub] Notificación Corporativa de Personal"
+        val subject = "[S1] Notificación Corporativa de Personal"
         val body = """
             Estimado/a responsable de Recursos Humanos,
             
-            Este es un correo de verificación del sistema StaffHub.
+            Este es un correo de verificación del sistema S1.
             Resumen del estado del personal:
             - Total de empleados: ${employees.value.size}
             - Disponibilidad actual: ${kpis.value.availabilityPercentage}%
@@ -789,11 +822,11 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
         BackgroundSyncWorker.enqueuePeriodicSync(application)
     }
 
-    // Registro de Jornada y Fichaje Offline (Sótano / Sin Cobertura) con WorkManager
+    // Registro de Jornada y Fichaje (Modo Online y Offline) con WorkManager
     fun registerClockEntry(
         employee: Employee,
         clockType: ClockType,
-        locationTag: String = "Sótano / Instalación sin cobertura"
+        locationTag: String = "Sede Central - Acceso"
     ) {
         val now = java.time.LocalDateTime.now()
         val timeFormatter = java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")
@@ -803,6 +836,7 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
         _isNetworkAvailable.value = isOnline
 
         val entry = TimeClockEntry(
+            companyCode = employee.companyCode.ifBlank { _currentCompanyCode.value },
             employeeId = employee.id,
             employeeName = employee.name,
             department = employee.department,
@@ -839,12 +873,12 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     )
                     BackgroundSyncWorker.enqueueImmediateSync(getApplication())
-                    _statusMessage.value = "⚠️ Fichaje guardado localmente en Room. En cola para sincronización WorkManager."
+                    _statusMessage.value = "⚠️ Fichaje guardado en local (Modo Offline). En cola para sincronización automática."
                 }
             } else {
-                // Sin cobertura (sótano) -> Guardar silenciosamente en Room y encolar WorkManager
+                // Sin cobertura -> Guardar silenciosamente en Room y encolar sincronización
                 BackgroundSyncWorker.enqueueImmediateSync(getApplication())
-                _statusMessage.value = "🏢 Fichaje guardado en local (Modo Sótano). WorkManager lo sincronizará silenciosamente al recuperar cobertura."
+                _statusMessage.value = "🏢 Fichaje registrado en local (Modo Offline). Se sincronizará automáticamente al recuperar conexión."
             }
 
             repository.addNotification(
@@ -861,7 +895,7 @@ class StaffViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             _isNetworkAvailable.value = integrationService.isNetworkAvailable()
             BackgroundSyncWorker.enqueueImmediateSync(getApplication())
-            val report = integrationService.forceFullSync(database)
+            val report = integrationService.forceFullSync(database, _currentCompanyCode.value)
             _statusMessage.value = report.message
         }
     }

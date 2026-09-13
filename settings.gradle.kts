@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "StaffHub"
+rootProject.name = "S1"
 
 include(":app")
