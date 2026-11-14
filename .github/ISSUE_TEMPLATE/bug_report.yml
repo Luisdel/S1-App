@@ -1,0 +1,26 @@
+name: Informe de error
+description: Reporta un comportamiento incorrecto o inesperado.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Descripción
+      description: ¿Qué ocurrió y qué esperabas?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Pasos para reproducir
+      description: Indica los pasos mínimos para observar el problema.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Entorno
+      description: Versión de Android, dispositivo y versión de la aplicación.
+    validations:
+      required: true
