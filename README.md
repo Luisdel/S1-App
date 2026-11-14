@@ -45,6 +45,11 @@ El workflow de GitHub Actions ejecuta `check`, `lintDebug` y `assembleDebug` en
 cada pull request y en los pushes a `main`. Las tareas que requieran un
 dispositivo o una configuración real de Firebase no se ejecutan en CI.
 
+En la validación local de este mantenimiento, Gradle 9.3.1 no pudo resolver el
+plugin `com.android.application:9.1.1` desde los repositorios configurados. Es
+un bloqueo preexistente de resolución de dependencias; no se ha cambiado la
+versión del plugin para evitar una actualización funcional no solicitada.
+
 ## Estructura
 
 ```text
